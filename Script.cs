@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.2.0";
+string _script_version = "1.2.1";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -17,6 +17,7 @@ const int PANELS_INV   = 1;
 const int SIZE_PANELS  = 2;
 
 List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay" };
+List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "" };
 
 /* Genuine global state */
 List<int> _cycles = new List<int>(SIZE_CYCLES);
@@ -73,6 +74,7 @@ public void Main(string argument, UpdateType updateSource) {
     try {
         if ((updateSource & UpdateType.Update100) != 0) {
 	    DateTime start_time = DateTime.Now;
+            // FIXME: System.Diagnostics.Stopwatch
 
 	    _cycles[CYCLES_TOP]++;
 
@@ -84,6 +86,7 @@ public void Main(string argument, UpdateType updateSource) {
                 FindPanels();
                 FindInventoryBlocks();
                 FindCargoBlocks();
+                FlushToPanels(PANELS_INV);
             }
 
             CheckInventory();
@@ -100,10 +103,12 @@ public void Main(string argument, UpdateType updateSource) {
                 long time = (_time[(TIME_SAMPLES + _cycles[CYCLES_TOP] - i) % TIME_SAMPLES] * 1000L) / TimeSpan.TicksPerMillisecond;
                 Log($"  [T-{i}] Load {load} in {time}us");
             }
+            FlushToPanels(PANELS_DEBUG);
         }
     } catch (Exception e) {
         Log("An exception occurred during script execution.");
         Log($"Exception: {e}\n---");
+        FlushToPanels(PANELS_DEBUG);
         throw;
     }
 }
@@ -180,20 +185,20 @@ public void CheckInventory() {
 
     MyFixedPoint old, value;
     int delta;
-    //ClearPanels(PANELS_INV);
-    WritePanels(PANELS_INV, _script_title_nl + "\n", false);
+    ClearPanels(PANELS_INV);
+    WritePanels(PANELS_INV, _script_title_nl + "\n");
 
     MyFixedPoint free_volume = MyFixedPoint.AddSafe(max_volume, -used_volume);
-    WritePanels(PANELS_INV, $"{(int)used_mass}kg {(int)used_volume}/{(int)max_volume}m3 {(int)free_volume}m3 free.\n\n", true);
+    WritePanels(PANELS_INV, $"{(int)used_mass}kg {(int)used_volume}/{(int)max_volume}m3 {(int)free_volume}m3 free.\n\n");
     foreach (KeyValuePair<string, MyFixedPoint> kvp in _item_counts[current]) {
         value = kvp.Value;
         old = (MyFixedPoint)0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
         if (delta != 0) {
-            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n", true);
+            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n");
         } else {
-            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key}\n", true);
+            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key}\n");
         }
     }
 }
@@ -242,23 +247,38 @@ public void FindCargoBlocks() {
 
 public void ClearAllPanels() {
     for (int i = 0; i < SIZE_PANELS; i++) {
-        WritePanels(i, "", false);
+        ClearPanels(i);
     }
 }
 
 public void ClearPanels(int kind) {
-    WritePanels(kind, "", false);
+    _panel_text[kind] = "";
 }
 
-public void WritePanels(int kind, string s, bool append) {
+// FIXME: use System.Text.StringBuilder?
+// StringBuilder.Clear() or StringBuilder.Length = 0
+// new StringBuilder("", capacity);
+// StringBuilder.Append(s)
+// StringBuilder.ToString()
+public void WritePanels(int kind, string s) {
+    _panel_text[kind] += s;
+}
+
+public void FlushToAllPanels() {
+    for (int i = 0; i < SIZE_PANELS; i++) {
+        FlushToPanels(i);
+    }
+}
+
+public void FlushToPanels(int kind) {
     foreach (IMyTextPanel panel in _panels[kind]) {
         if (panel != null) {
-            panel.WriteText(s, append);
+            panel.WriteText(_panel_text[kind], false);
         }
     }
 }
 
 public void Log(string s) {
-    WritePanels(PANELS_DEBUG, s + "\n", true);
+    WritePanels(PANELS_DEBUG, s + "\n");
     Echo(s);
 }
