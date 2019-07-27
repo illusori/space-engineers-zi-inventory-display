@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.2.1";
+string _script_version = "1.2.2";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -17,17 +17,24 @@ const int PANELS_INV   = 1;
 const int SIZE_PANELS  = 2;
 
 List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay" };
-List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "" };
 
 /* Genuine global state */
 List<int> _cycles = new List<int>(SIZE_CYCLES);
+
 List<List<IMyTextPanel>> _panels = new List<List<IMyTextPanel>>(SIZE_PANELS);
+List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "" };
+
+string _inv_text = "", _cargo_text = ""; // FIXME: StringBuilder?
+
 List<IMyTerminalBlock> _inventory_blocks = new List<IMyTerminalBlock>();
 List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 
-List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_SAMPLES);
 List<long> _load = new List<long>();
 List<long> _time = new List<long>();
+List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_SAMPLES);
+MyFixedPoint _used_mass = (MyFixedPoint)0.0;
+MyFixedPoint _used_volume = (MyFixedPoint)0.0;
+MyFixedPoint _max_volume = (MyFixedPoint)0.0;
 
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
@@ -88,7 +95,13 @@ public void Main(string argument, UpdateType updateSource) {
                 FindCargoBlocks();
             }
 
-            CheckInventory();
+            UpdateInventoryStats();
+            UpdateCargoStats();
+
+            UpdateInventoryText();
+            UpdateCargoText();
+            CompositeInventoryPanel();
+
             FlushToPanels(PANELS_INV);
 
 	    _load[_cycles[CYCLES_TOP] % LOAD_SAMPLES] = Runtime.CurrentInstructionCount;
@@ -113,7 +126,7 @@ public void Main(string argument, UpdateType updateSource) {
     }
 }
 
-public void CheckInventory() {
+public void UpdateInventoryStats() {
     _cycles[CYCLES_INV]++;
 
     //Log("Boop!");
@@ -160,10 +173,12 @@ public void CheckInventory() {
         }
     }
     Log($"  {num_invs} inventories in {_inventory_blocks.Count} blocks.");
+}
 
-    MyFixedPoint used_mass = (MyFixedPoint)0.0;
-    MyFixedPoint used_volume = (MyFixedPoint)0.0;
-    MyFixedPoint max_volume = (MyFixedPoint)0.0;
+public void UpdateCargoStats() {
+    _used_mass = (MyFixedPoint)0.0;
+    _used_volume = (MyFixedPoint)0.0;
+    _max_volume = (MyFixedPoint)0.0;
     num_invs = 0;
     foreach (IMyCargoContainer cargo_block in _cargo_blocks) {
         if (cargo_block == null) {
@@ -176,31 +191,39 @@ public void CheckInventory() {
             if (inv == null) {
                 //Log("Block has null inventory.");
             }
-            used_mass   = MyFixedPoint.AddSafe(used_mass, inv.CurrentMass);
-            used_volume = MyFixedPoint.AddSafe(used_volume, inv.CurrentVolume);
-            max_volume  = MyFixedPoint.AddSafe(max_volume, inv.MaxVolume);
+            _used_mass   = MyFixedPoint.AddSafe(_used_mass, inv.CurrentMass);
+            _used_volume = MyFixedPoint.AddSafe(_used_volume, inv.CurrentVolume);
+            _max_volume  = MyFixedPoint.AddSafe(_max_volume, inv.MaxVolume);
         }
     }
     Log($"  {num_invs} inventories in {_cargo_blocks.Count} cargoes.");
+}
 
+void UpdateInventoryText() {
     MyFixedPoint old, value;
     int delta;
-    ClearPanels(PANELS_INV);
-    WritePanels(PANELS_INV, _script_title_nl + "\n");
-
-    MyFixedPoint free_volume = MyFixedPoint.AddSafe(max_volume, -used_volume);
-    WritePanels(PANELS_INV, $"{(int)used_mass}kg {(int)used_volume}/{(int)max_volume}m3 {(int)free_volume}m3 free.\n\n");
+    _inv_text = "";
     foreach (KeyValuePair<string, MyFixedPoint> kvp in _item_counts[current]) {
         value = kvp.Value;
         old = (MyFixedPoint)0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
         if (delta != 0) {
-            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n");
+            _inv_text += $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n";
         } else {
-            WritePanels(PANELS_INV, $"{(int)value,8} {kvp.Key}\n");
+            _inv_text += $"{(int)value,8} {kvp.Key}\n";
         }
     }
+}
+
+void UpdateCargoText() {
+    MyFixedPoint free_volume = MyFixedPoint.AddSafe(_max_volume, -_used_volume);
+    _cargo_text = $"{(int)_used_mass}kg {(int)_used_volume}/{(int)_max_volume}m3 {(int)free_volume}m3 free.\n";
+}
+
+void CompositeInventoryPanel() {
+    ClearPanels(PANELS_INV);
+    WritePanels(PANELS_INV, $"{_script_title_nl}\n{_cargo_text}\n{_inv_text}");
 }
 
 public string GetItemName(MyItemType item_type) {
