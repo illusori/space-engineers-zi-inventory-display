@@ -1,16 +1,18 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.2.2";
+string _script_version = "1.2.3";
 
 string _script_title = null;
 string _script_title_nl = null;
 
-const int INV_SAMPLES  = 10;
-const int LOAD_SAMPLES = 10;
-const int TIME_SAMPLES = 10;
+const int INV_SAMPLES   = 10;
+const int LOAD_SAMPLES  = 10;
+const int TIME_SAMPLES  = 10;
+const int CARGO_SAMPLES = 10;
 
-const int CYCLES_TOP  = 0;
-const int CYCLES_INV  = 1;
-const int SIZE_CYCLES = 2;
+const int CYCLES_TOP   = 0;
+const int CYCLES_INV   = 1;
+const int CYCLES_CARGO = 2;
+const int SIZE_CYCLES  = 3;
 
 const int PANELS_DEBUG = 0;
 const int PANELS_INV   = 1;
@@ -32,9 +34,12 @@ List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 List<long> _load = new List<long>();
 List<long> _time = new List<long>();
 List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_SAMPLES);
-MyFixedPoint _used_mass = (MyFixedPoint)0.0;
-MyFixedPoint _used_volume = (MyFixedPoint)0.0;
-MyFixedPoint _max_volume = (MyFixedPoint)0.0;
+
+class CargoSample {
+    public MyFixedPoint UsedMass, UsedVolume, MaxVolume;
+}
+
+List<CargoSample> _cargo = new List<CargoSample>(CARGO_SAMPLES);
 
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
@@ -59,6 +64,9 @@ public Program() {
     }
     for (int i = 0; i < INV_SAMPLES; i++) {
         _item_counts.Add(new Dictionary<string, MyFixedPoint>());
+    }
+    for (int i = 0; i < CARGO_SAMPLES; i++) {
+        _cargo.Add(new CargoSample());
     }
 
     FindPanels();
@@ -176,10 +184,16 @@ public void UpdateInventoryStats() {
 }
 
 public void UpdateCargoStats() {
-    _used_mass = (MyFixedPoint)0.0;
-    _used_volume = (MyFixedPoint)0.0;
-    _max_volume = (MyFixedPoint)0.0;
-    num_invs = 0;
+    _cycles[CYCLES_CARGO]++;
+
+    int last = (_cycles[CYCLES_CARGO] + 1) % CARGO_SAMPLES,
+        current = _cycles[CYCLES_CARGO] % CARGO_SAMPLES;
+    CargoSample sample = _cargo[current];
+
+    sample.UsedMass   = (MyFixedPoint)0.0;
+    sample.UsedVolume = (MyFixedPoint)0.0;
+    sample.MaxVolume  = (MyFixedPoint)0.0;
+    int num_invs = 0;
     foreach (IMyCargoContainer cargo_block in _cargo_blocks) {
         if (cargo_block == null) {
             //Log("Block is null.");
@@ -191,15 +205,17 @@ public void UpdateCargoStats() {
             if (inv == null) {
                 //Log("Block has null inventory.");
             }
-            _used_mass   = MyFixedPoint.AddSafe(_used_mass, inv.CurrentMass);
-            _used_volume = MyFixedPoint.AddSafe(_used_volume, inv.CurrentVolume);
-            _max_volume  = MyFixedPoint.AddSafe(_max_volume, inv.MaxVolume);
+            sample.UsedMass   = MyFixedPoint.AddSafe(sample.UsedMass,   inv.CurrentMass);
+            sample.UsedVolume = MyFixedPoint.AddSafe(sample.UsedVolume, inv.CurrentVolume);
+            sample.MaxVolume  = MyFixedPoint.AddSafe(sample.MaxVolume,  inv.MaxVolume);
         }
     }
     Log($"  {num_invs} inventories in {_cargo_blocks.Count} cargoes.");
 }
 
 void UpdateInventoryText() {
+    int last = (_cycles[CYCLES_INV] + 1) % INV_SAMPLES,
+        current = _cycles[CYCLES_INV] % INV_SAMPLES;
     MyFixedPoint old, value;
     int delta;
     _inv_text = "";
@@ -217,8 +233,18 @@ void UpdateInventoryText() {
 }
 
 void UpdateCargoText() {
-    MyFixedPoint free_volume = MyFixedPoint.AddSafe(_max_volume, -_used_volume);
-    _cargo_text = $"{(int)_used_mass}kg {(int)_used_volume}/{(int)_max_volume}m3 {(int)free_volume}m3 free.\n";
+    int last = (_cycles[CYCLES_CARGO] + 1) % CARGO_SAMPLES,
+        current = _cycles[CYCLES_CARGO] % CARGO_SAMPLES;
+    CargoSample sample = _cargo[current], last_sample = _cargo[last];
+
+    MyFixedPoint free_volume = MyFixedPoint.AddSafe(sample.MaxVolume, -sample.UsedVolume);
+
+    int delta_used_mass   = (int)((double)MyFixedPoint.AddSafe(sample.UsedMass,   -last_sample.UsedMass) / CARGO_SAMPLES);
+    int delta_used_volume = (int)((double)MyFixedPoint.AddSafe(sample.UsedVolume, -last_sample.UsedVolume) / CARGO_SAMPLES);
+    int delta_max_volume  = (int)((double)MyFixedPoint.AddSafe(sample.MaxVolume,  -last_sample.MaxVolume) / CARGO_SAMPLES);
+    int delta_free_volume = delta_max_volume - delta_used_volume;
+
+    _cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#;-#;0}kg {delta_used_volume,5:+#;-#;0}/{delta_max_volume,5:+#;-#;0}m3 {delta_free_volume,5:+#;-#;0}m3\n";
 }
 
 void CompositeInventoryPanel() {
