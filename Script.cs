@@ -86,10 +86,10 @@ public void Main(string argument, UpdateType updateSource) {
                 FindPanels();
                 FindInventoryBlocks();
                 FindCargoBlocks();
-                FlushToPanels(PANELS_INV);
             }
 
             CheckInventory();
+            FlushToPanels(PANELS_INV);
 
 	    _load[_cycles[CYCLES_TOP] % LOAD_SAMPLES] = Runtime.CurrentInstructionCount;
 	    _time[_cycles[CYCLES_TOP] % TIME_SAMPLES] = (DateTime.Now - start_time).Ticks;
