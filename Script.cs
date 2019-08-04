@@ -158,10 +158,10 @@ public void Main(string argument, UpdateType updateSource) {
 	    long time_avg = (_time.Sum() * 1000L) / (TIME_HISTORY * TimeSpan.TicksPerMillisecond);
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
 
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 16; i++) {
                 long load = _load[LoadOffset(-i)];
                 long time = (_time[TimeOffset(-i)] * 1000L) / TimeSpan.TicksPerMillisecond;
-                Log($"  [T-{i}] Load {load} in {time}us");
+                Log($"  [T-{i,-2}] Load {load} in {time}us");
             }
             FlushToPanels(PANELS_DEBUG);
         }
@@ -260,7 +260,7 @@ void UpdateInventoryText() {
         old = (MyFixedPoint)0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
-        _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';0}]\n";
+        _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';''}\n";
         /*
         if (delta != 0) {
             _inv_text += $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n";
@@ -282,8 +282,8 @@ void UpdateCargoText() {
     int delta_max_volume  = (int)((double)MyFixedPoint.AddSafe(sample.MaxVolume,  -last_sample.MaxVolume) / CARGO_SAMPLES);
     int delta_free_volume = delta_max_volume - delta_used_volume;
 
-    //_cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#;-#;0}kg {delta_used_volume,5:+#;-#;0}/{delta_max_volume,5:+#;-#;0}m3 {delta_free_volume,5:+#;-#;0}m3\n";
-     _cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#'kg';-#'kg';} {delta_used_volume,5:+#;-#;}/{delta_max_volume,5:+#'m3';-#'m3';}m3 {delta_free_volume,5:+#'m3';-#'m3';}\n";
+    //_cargo_text = $"     Mass      Volume       Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#;-#;0}kg {delta_used_volume,5:+#;-#;0}/{delta_max_volume,5:+#;-#;0}m3 {delta_free_volume,5:+#;-#;0}m3\n";
+     _cargo_text = $"      Mass      Volume       Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,12:+#'kg';-#'kg';''} {delta_used_volume,5:+#;-#;''}/{delta_max_volume,7:+#'m3';-#'m3';''} {delta_free_volume,7:+#'m3';-#'m3';''}\n";
 }
 
 void CompositeInventoryPanel() {
