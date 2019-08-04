@@ -112,7 +112,7 @@ public Program() {
 public void Save() {
 }
 
-public int SafeMod(val, mod) {
+public int SafeMod(int val, int mod) {
     while (val < 0)
         val += mod;
     return val % mod;
@@ -153,7 +153,7 @@ public void Main(string argument, UpdateType updateSource) {
 	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
 	    _time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
 
-            # FIXME: across SAMPLES not HISTORY
+            // FIXME: across SAMPLES not HISTORY
 	    long load_avg = _load.Sum() / LOAD_HISTORY;
 	    long time_avg = (_time.Sum() * 1000L) / (TIME_HISTORY * TimeSpan.TicksPerMillisecond);
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
