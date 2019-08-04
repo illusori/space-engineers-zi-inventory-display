@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.2.3";
+string _script_version = "1.2.4";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -17,6 +17,19 @@ const int SIZE_CYCLES  = 3;
 const int PANELS_DEBUG = 0;
 const int PANELS_INV   = 1;
 const int SIZE_PANELS  = 2;
+
+/* Unicode Blocks
+U+2588	█	Full block
+U+2589	▉	Left seven eighths block
+U+258A	▊	Left three quarters block
+U+258B	▋	Left five eighths block
+U+258C	▌	Left half block
+U+258D	▍	Left three eighths block
+U+258E	▎	Left one quarter block
+U+258F	▏	Left one eighth block
+
+U+2591	░	Light shade
+ */
 
 List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay" };
 
@@ -224,11 +237,14 @@ void UpdateInventoryText() {
         old = (MyFixedPoint)0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
+        _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';0}]\n";
+        /*
         if (delta != 0) {
             _inv_text += $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n";
         } else {
             _inv_text += $"{(int)value,8} {kvp.Key}\n";
         }
+        */
     }
 }
 
@@ -244,7 +260,8 @@ void UpdateCargoText() {
     int delta_max_volume  = (int)((double)MyFixedPoint.AddSafe(sample.MaxVolume,  -last_sample.MaxVolume) / CARGO_SAMPLES);
     int delta_free_volume = delta_max_volume - delta_used_volume;
 
-    _cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#;-#;0}kg {delta_used_volume,5:+#;-#;0}/{delta_max_volume,5:+#;-#;0}m3 {delta_free_volume,5:+#;-#;0}m3\n";
+    //_cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#;-#;0}kg {delta_used_volume,5:+#;-#;0}/{delta_max_volume,5:+#;-#;0}m3 {delta_free_volume,5:+#;-#;0}m3\n";
+     _cargo_text = $"  Mass      Volume         Free\n{(int)sample.UsedMass,10}kg {(int)sample.UsedVolume,5}/{(int)sample.MaxVolume,5}m3 {(int)free_volume,5}m3\n{delta_used_mass,10:+#'kg';-#'kg';} {delta_used_volume,5:+#;-#;}/{delta_max_volume,5:+#'m3';-#'m3';}m3 {delta_free_volume,5:+#'m3';-#'m3';}\n";
 }
 
 void CompositeInventoryPanel() {
