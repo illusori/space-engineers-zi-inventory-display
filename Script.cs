@@ -1,8 +1,13 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.2.4";
+string _script_version = "1.2.5";
 
 string _script_title = null;
 string _script_title_nl = null;
+
+const int INV_HISTORY   = 30;
+const int LOAD_HISTORY  = 30;
+const int TIME_HISTORY  = 30;
+const int CARGO_HISTORY = 30;
 
 const int INV_SAMPLES   = 10;
 const int LOAD_SAMPLES  = 10;
@@ -19,6 +24,15 @@ const int PANELS_INV   = 1;
 const int SIZE_PANELS  = 2;
 
 /* Unicode Blocks
+U+2581	▁	Lower one eighth block
+U+2582	▂	Lower one quarter block
+U+2583	▃	Lower three eighths block
+U+2584	▄	Lower half block
+U+2585	▅	Lower five eighths block
+U+2586	▆	Lower three quarters block
+U+2587	▇	Lower seven eighths block
+U+2588	█	Full block
+
 U+2588	█	Full block
 U+2589	▉	Left seven eighths block
 U+258A	▊	Left three quarters block
@@ -46,13 +60,13 @@ List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 
 List<long> _load = new List<long>();
 List<long> _time = new List<long>();
-List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_SAMPLES);
+List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_HISTORY);
 
 class CargoSample {
     public MyFixedPoint UsedMass, UsedVolume, MaxVolume;
 }
 
-List<CargoSample> _cargo = new List<CargoSample>(CARGO_SAMPLES);
+List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
 
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
@@ -69,16 +83,16 @@ public Program() {
     for (int i = 0; i < SIZE_PANELS; i++) {
         _panels.Add(new List<IMyTextPanel>());
     }
-    for (int i = 0; i < LOAD_SAMPLES; i++) {
+    for (int i = 0; i < LOAD_HISTORY; i++) {
         _load.Add(0L);
     }
-    for (int i = 0; i < TIME_SAMPLES; i++) {
+    for (int i = 0; i < TIME_HISTORY; i++) {
         _time.Add(0L);
     }
-    for (int i = 0; i < INV_SAMPLES; i++) {
+    for (int i = 0; i < INV_HISTORY; i++) {
         _item_counts.Add(new Dictionary<string, MyFixedPoint>());
     }
-    for (int i = 0; i < CARGO_SAMPLES; i++) {
+    for (int i = 0; i < CARGO_HISTORY; i++) {
         _cargo.Add(new CargoSample());
     }
 
@@ -97,6 +111,17 @@ public Program() {
 
 public void Save() {
 }
+
+public int SafeMod(val, mod) {
+    while (val < 0)
+        val += mod;
+    return val % mod;
+}
+
+public int InvOffset(int delta)   { return SafeMod(_cycles[CYCLES_INV] + delta, INV_HISTORY); }
+public int LoadOffset(int delta)  { return SafeMod(_cycles[CYCLES_TOP] + delta, LOAD_HISTORY); }
+public int TimeOffset(int delta)  { return SafeMod(_cycles[CYCLES_TOP] + delta, TIME_HISTORY); }
+public int CargoOffset(int delta) { return SafeMod(_cycles[CYCLES_CARGO] + delta, CARGO_HISTORY); }
 
 public void Main(string argument, UpdateType updateSource) {
     try {
@@ -125,16 +150,17 @@ public void Main(string argument, UpdateType updateSource) {
 
             FlushToPanels(PANELS_INV);
 
-	    _load[_cycles[CYCLES_TOP] % LOAD_SAMPLES] = Runtime.CurrentInstructionCount;
-	    _time[_cycles[CYCLES_TOP] % TIME_SAMPLES] = (DateTime.Now - start_time).Ticks;
+	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
+	    _time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
 
-	    long load_avg = _load.Sum() / LOAD_SAMPLES;
-	    long time_avg = (_time.Sum() * 1000L) / (TIME_SAMPLES * TimeSpan.TicksPerMillisecond);
+            # FIXME: across SAMPLES not HISTORY
+	    long load_avg = _load.Sum() / LOAD_HISTORY;
+	    long time_avg = (_time.Sum() * 1000L) / (TIME_HISTORY * TimeSpan.TicksPerMillisecond);
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
 
             for (int i = 0; i < 5; i++) {
-                long load = _load[(LOAD_SAMPLES + _cycles[CYCLES_TOP] - i) % LOAD_SAMPLES];
-                long time = (_time[(TIME_SAMPLES + _cycles[CYCLES_TOP] - i) % TIME_SAMPLES] * 1000L) / TimeSpan.TicksPerMillisecond;
+                long load = _load[LoadOffset(-i)];
+                long time = (_time[TimeOffset(-i)] * 1000L) / TimeSpan.TicksPerMillisecond;
                 Log($"  [T-{i}] Load {load} in {time}us");
             }
             FlushToPanels(PANELS_DEBUG);
@@ -151,8 +177,7 @@ public void UpdateInventoryStats() {
     _cycles[CYCLES_INV]++;
 
     //Log("Boop!");
-    int last = (_cycles[CYCLES_INV] + 1) % INV_SAMPLES,
-        current = _cycles[CYCLES_INV] % INV_SAMPLES;
+    int last = InvOffset(-INV_SAMPLES), current = InvOffset(0);
     Log($"[Inv run {_cycles[CYCLES_INV]}] Offsets: last {last}, current {current}");
 
     _item_counts[current].Clear();
@@ -199,8 +224,7 @@ public void UpdateInventoryStats() {
 public void UpdateCargoStats() {
     _cycles[CYCLES_CARGO]++;
 
-    int last = (_cycles[CYCLES_CARGO] + 1) % CARGO_SAMPLES,
-        current = _cycles[CYCLES_CARGO] % CARGO_SAMPLES;
+    int last = CargoOffset(-CARGO_SAMPLES), current = CargoOffset(0);
     CargoSample sample = _cargo[current];
 
     sample.UsedMass   = (MyFixedPoint)0.0;
@@ -227,8 +251,7 @@ public void UpdateCargoStats() {
 }
 
 void UpdateInventoryText() {
-    int last = (_cycles[CYCLES_INV] + 1) % INV_SAMPLES,
-        current = _cycles[CYCLES_INV] % INV_SAMPLES;
+    int last = InvOffset(-INV_SAMPLES), current = InvOffset(0);
     MyFixedPoint old, value;
     int delta;
     _inv_text = "";
@@ -249,8 +272,7 @@ void UpdateInventoryText() {
 }
 
 void UpdateCargoText() {
-    int last = (_cycles[CYCLES_CARGO] + 1) % CARGO_SAMPLES,
-        current = _cycles[CYCLES_CARGO] % CARGO_SAMPLES;
+    int last = InvOffset(-CARGO_SAMPLES), current = InvOffset(0);
     CargoSample sample = _cargo[current], last_sample = _cargo[last];
 
     MyFixedPoint free_volume = MyFixedPoint.AddSafe(sample.MaxVolume, -sample.UsedVolume);
