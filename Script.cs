@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.4.0";
+string _script_version = "1.4.1";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -22,18 +22,26 @@ const int CYCLES_CARGO   = 2;
 const int CYCLES_BATTERY = 3;
 const int SIZE_CYCLES    = 4;
 
-const int PANELS_DEBUG      = 0;
-const int PANELS_INV        = 1;
-const int PANELS_TIME_CHART = 2;
-const int SIZE_PANELS       = 3;
+const int PANELS_DEBUG = 0;
+const int PANELS_INV   = 1;
+const int PANELS_CHART = 2;
+const int SIZE_PANELS  = 3;
 
-List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay", "@TimeChartDisplay" };
+const int CHART_TIME         = 0;
+const int CHART_POWER_STORED = 1;
+const int CHART_POWER_IN     = 2;
+const int CHART_POWER_OUT    = 3;
+const int SIZE_CHARTS        = 4;
+
+List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay", "@ChartDisplay" };
 
 /* Genuine global state */
 List<int> _cycles = new List<int>(SIZE_CYCLES);
 
 List<List<IMyTextPanel>> _panels = new List<List<IMyTextPanel>>(SIZE_PANELS);
 List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "", "" };
+
+List<Chart> _charts = new List<Chart>(SIZE_CHARTS);
 
 string _inv_text = "", _cargo_text = ""; // FIXME: StringBuilder?
 
@@ -45,12 +53,8 @@ List<long> _load = new List<long>();
 List<long> _time = new List<long>();
 List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_HISTORY);
 
-// 42x28 seems about right for 1x1 panel at 0.6
-DrawBuffer _chart_buffer = new DrawBuffer(42, 28);
-Chart _time_chart = new Chart(true, "Exec Time", "us");
-Chart _powerstored_chart = new Chart(true, "Stored Power", "MWh");
-Chart _powerin_chart = new Chart(true, "Power In", "MW");
-Chart _powerout_chart = new Chart(true, "Power Out", "MW");
+// panel.EntityId => DrawBuffer
+Dictionary<long, DrawBuffer> _chart_buffers = new Dictionary<long, DrawBuffer>();
 
 class CargoSample {
     public MyFixedPoint UsedMass, UsedVolume, MaxVolume;
@@ -94,6 +98,11 @@ public Program() {
     for (int i = 0; i < BATTERY_HISTORY; i++) {
         _battery.Add(new BatterySample());
     }
+
+    _charts.Add(new Chart("Exec Time", "us"));
+    _charts.Add(new Chart("Stored Power", "MWh"));
+    _charts.Add(new Chart("Power In", "MW"));
+    _charts.Add(new Chart("Power Out", "MW"));
 
     FindPanels();
     FindInventoryBlocks();
@@ -156,9 +165,10 @@ public void Main(string argument, UpdateType updateSource) {
 
             FlushToPanels(PANELS_INV);
 
+            ResetChartBuffers();
             UpdateTimeChart();
             UpdatePowerChart();
-            FlushToPanels(PANELS_TIME_CHART);
+            FlushChartBuffers();
 
 	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
 	    _time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
@@ -361,6 +371,12 @@ public string GetItemName(MyItemType item_type) {
     if (item_type.TypeId == "MyObjectBuilder_GasContainerObject") {
         return item_type.SubtypeId;
     }
+    if (item_type.TypeId == "MyObjectBuilder_OxygenContainerObject") {
+        return item_type.SubtypeId;
+    }
+    if (item_type.TypeId == "MyObjectBuilder_AmmoMagazine") {
+        return item_type.SubtypeId;
+    }
     return $"{item_type.TypeId} {item_type.SubtypeId}";
 }
 
@@ -368,7 +384,37 @@ public void FindPanels() {
     for (int i = 0; i < SIZE_PANELS; i++) {
         _panels[i].Clear();
         GridTerminalSystem.GetBlocksOfType<IMyTextPanel>(_panels[i], block => block.CustomName.Contains(_panel_tags[i]));
+        for (int j = 0, szj = _panels[i].Count; j < szj; j++) {
+            _panels[i][j].ContentType = ContentType.TEXT_AND_IMAGE;
+            _panels[i][j].Font = "Monospace";
+            _panels[i][j].FontSize = 0.6F;
+            _panels[i][j].Alignment = TextAlignment.LEFT;
+        }
     }
+    // Special logic for ChartPanels, need to set up buffers and read their config.
+    HashSet<long> found_ids = new HashSet<long>(_panels[PANELS_CHART].Count);
+    DrawBuffer buffer;
+    for (int i = 0, sz = _panels[PANELS_CHART].Count; i < sz; i++) {
+        IMyTextPanel panel = _panels[PANELS_CHART][i];
+        long id = panel.EntityId;
+        found_ids.Add(id);
+        if (!_chart_buffers.TryGetValue(id, out buffer)) {
+            // 42x28 seems about right for 1x1 panel at 0.6
+            // FIXME: read panel size
+            buffer = new DrawBuffer(panel, 42, 28);
+            _chart_buffers.Add(id, buffer);
+        }
+        // FIXME: read config, if config has changed: add buffers to charts.
+
+        _charts[CHART_POWER_STORED].RemoveDisplaysForBuffer(buffer);
+        _charts[CHART_POWER_IN].RemoveDisplaysForBuffer(buffer);
+        _charts[CHART_POWER_OUT].RemoveDisplaysForBuffer(buffer);
+
+	_charts[CHART_POWER_STORED].AddBuffer(buffer, 0, 0, 42, 9);
+	_charts[CHART_POWER_IN].AddBuffer(buffer, 0, 9, 42, 9);
+	_charts[CHART_POWER_OUT].AddBuffer(buffer, 0, 18, 42, 9);
+    }
+    // FIXME: prune old ids in _chart_buffers
 }
 
 public void FindInventoryBlocks() {
@@ -436,39 +482,51 @@ public void Log(string s) {
 }
 
 public void SetupTimeChart() {
-    //_time_chart.AddBuffer(_chart_buffer, 0, 0, 42, 12);
-    //_time_chart.AddBuffer(_chart_buffer, 0, 11, 21, 6);
-    //_time_chart.AddBuffer(_chart_buffer, 20, 11, 22, 6);
+    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 0, 0, 42, 12);
+    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 0, 11, 21, 6);
+    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 20, 11, 22, 6);
 }
 
 public void SetupPowerChart() {
-    _powerstored_chart.AddBuffer(_chart_buffer, 0, 0, 42, 9, new ChartOptions(show_max: false, show_scale: true));
-    _powerin_chart.AddBuffer(_chart_buffer, 0, 9, 42, 9, new ChartOptions(show_max: false, show_scale: true));
-    _powerout_chart.AddBuffer(_chart_buffer, 0, 18, 42, 9, new ChartOptions(show_max: false, show_scale: true));
+    //_charts[CHART_POWER_STORED].AddBuffer(_chart_buffer, 0, 0, 42, 9);
+    //_charts[CHART_POWER_IN].AddBuffer(_chart_buffer, 0, 9, 42, 9);
+    //_charts[CHART_POWER_OUT].AddBuffer(_chart_buffer, 0, 18, 42, 9);
+}
+
+public void ResetChartBuffers() {
+    foreach (DrawBuffer buffer in _chart_buffers.Values) {
+        buffer.Reset();
+    }
+}
+
+public void FlushChartBuffers() {
+    foreach (DrawBuffer buffer in _chart_buffers.Values) {
+        buffer.Flush();
+    }
 }
 
 public void UpdateTimeChart() {
-    _chart_buffer.Reset(); // FIXME: figure out where this goes
+    //_chart_buffer.Reset(); // FIXME: figure out where this goes
 
-    if (_time_chart.IsViewed) {
-        ClearPanels(PANELS_TIME_CHART);
+    if (_charts[CHART_TIME].IsViewed) {
+        ClearPanels(PANELS_CHART);
 
         int max = (int)_time.Max();
-        _time_chart.StartDraw();
+        _charts[CHART_TIME].StartDraw();
         // Start at -1 because "now" hasn't been updated yet.
         for (int i = 0; i < TIME_HISTORY - 1; i++) {
             //Log($"Update T-{i,-2}");
-            _time_chart.DrawBar(i, (int)_time[TimeOffset(-i - 1)], max);
+            _charts[CHART_TIME].DrawBar(i, (int)_time[TimeOffset(-i - 1)], max);
         }
-        _time_chart.EndDraw();
+        _charts[CHART_TIME].EndDraw();
 
-        WritePanels(PANELS_TIME_CHART, _chart_buffer.ToString());
+        //WritePanels(PANELS_CHART, _chart_buffer.ToString());
     }
 }
 
 public void UpdatePowerChart() {
-    if (_powerstored_chart.IsViewed || _powerin_chart.IsViewed || _powerout_chart.IsViewed) {
-        ClearPanels(PANELS_TIME_CHART);
+    if (_charts[CHART_POWER_STORED].IsViewed || _charts[CHART_POWER_IN].IsViewed || _charts[CHART_POWER_OUT].IsViewed) {
+        ClearPanels(PANELS_CHART);
 
         //_chart_buffer.Reset();
 	int stored_max = (int)_battery[BatteryOffset(0)].MaxStoredPower;
@@ -482,30 +540,32 @@ public void UpdatePowerChart() {
             if ((int)_battery[BatteryOffset(-i)].CurrentOutput > out_max)
                 out_max = (int)_battery[BatteryOffset(-i)].CurrentOutput;
 	}
-        _powerstored_chart.StartDraw();
-        _powerin_chart.StartDraw();
-        _powerout_chart.StartDraw();
+        _charts[CHART_POWER_STORED].StartDraw();
+        _charts[CHART_POWER_IN].StartDraw();
+        _charts[CHART_POWER_OUT].StartDraw();
 	for (int i = 0; i < BATTERY_HISTORY; i++) {
 	    //Log($"Update T-{i,-2}");
-	    _powerstored_chart.DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentStoredPower, stored_max);
-	    _powerin_chart.DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentInput, in_max);
-	    _powerout_chart.DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentOutput, out_max);
+	    _charts[CHART_POWER_STORED].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentStoredPower, stored_max);
+	    _charts[CHART_POWER_IN].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentInput, in_max);
+	    _charts[CHART_POWER_OUT].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentOutput, out_max);
 	}
-        _powerstored_chart.EndDraw();
-        _powerin_chart.EndDraw();
-        _powerout_chart.EndDraw();
+        _charts[CHART_POWER_STORED].EndDraw();
+        _charts[CHART_POWER_IN].EndDraw();
+        _charts[CHART_POWER_OUT].EndDraw();
 
-        WritePanels(PANELS_TIME_CHART, _chart_buffer.ToString());
+        //WritePanels(PANELS_CHART, _chart_buffer.ToString());
     }
 }
 
 public class DrawBuffer {
+    public IMyTextPanel Panel;
     public int X, Y;
     public List<StringBuilder> Buffer;
     private List<string> template;
     string blank;
 
-    public DrawBuffer(int x, int y) {
+    public DrawBuffer(IMyTextPanel panel, int x, int y) {
+        Panel = panel;
         X = x;
         Y = y;
         blank = new String(' ', X) + "\n";
@@ -543,18 +603,24 @@ public class DrawBuffer {
         }
     }
 
+    public void Flush() {
+        if (Panel != null) {
+            Panel.WriteText(ToString(), false);
+        }
+    }
+
     override public string ToString() {
         return string.Concat(Buffer);
     }
 }
 
 public class ViewPort {
-    private DrawBuffer buffer;
+    public DrawBuffer buffer;
     private int offsetX, offsetY;
     public int X, Y;
 
-    public ViewPort(DrawBuffer buff, int offset_x, int offset_y, int x, int y) {
-        buffer = buff;
+    public ViewPort(DrawBuffer buffer, int offset_x, int offset_y, int x, int y) {
+        this.buffer = buffer;
         offsetX = offset_x;
         offsetY = offset_y;
         X = x;
@@ -573,16 +639,27 @@ public class ViewPort {
 
 public class ChartOptions {
     public bool Horizontal, ShowTitle, ShowCur, ShowAvg, ShowMax, ShowScale;
-    public int CurOffset = 0, AvgOffset = 0, MaxOffset = 0, ScaleOffset = 0;
-    public int SampleCur, SampleTotal, SampleMax, NumSamples, Scale; // h4x
 
-    public ChartOptions(bool horizontal = true, bool show_title = true, bool show_cur = true, bool show_avg = true, bool show_max = true, bool show_scale = false) {
+    public ChartOptions(bool horizontal = true, bool show_title = true, bool show_cur = true, bool show_avg = true, bool show_max = false, bool show_scale = true) {
         Horizontal = horizontal;
         ShowTitle = show_title;
         ShowCur = show_cur;
         ShowAvg = show_avg;
         ShowMax = show_max;
         ShowScale = show_scale;
+    }
+}
+
+public class ChartDisplay {
+    public ViewPort viewport;
+    public ChartOptions options;
+
+    public int CurOffset = 0, AvgOffset = 0, MaxOffset = 0, ScaleOffset = 0;
+    public int SampleCur, SampleTotal, SampleMax, NumSamples, Scale; // h4x
+
+    public ChartDisplay(ViewPort viewport, ChartOptions options) {
+        this.viewport = viewport;
+        this.options = options;
     }
 }
 
@@ -615,26 +692,24 @@ public class Chart {
       " ", "\u258F", "\u258E", "\u258D", "\u258C", "\u258B", "\u258A", "\u2589", "\u2588",
     };
 
-    private List<ViewPort> viewports;
-    private List<ChartOptions> viewport_options;
-    public bool Horizontal;
+    private List<ChartDisplay> displays;
+
     public string Title;
     public string Unit;
 
-    public bool IsViewed { get { return viewports.Count > 0; } }
+    public bool IsViewed { get { return displays.Count > 0; } }
 
-    public Chart(bool horizontal, string title, string unit) {
-        viewports = new List<ViewPort>();
-        viewport_options = new List<ChartOptions>();
+    public Chart(string title, string unit) {
+        displays = new List<ChartDisplay>();
         Title = title;
         Unit = unit;
     }
 
     public void AddViewPort(ViewPort viewport, ChartOptions options) {
         string label;
+        ChartDisplay display = new ChartDisplay(viewport, options);
 
-        viewports.Add(viewport);
-        viewport_options.Add(options);
+        displays.Add(display);
 
 	viewport.Write(0, 0, "." + new String('-', viewport.X - 2) + ".");
         if (options.ShowTitle) {
@@ -654,57 +729,69 @@ public class Chart {
             if (options.ShowCur) {
                 label = $"cur:     {Unit}";
                 segments.Add(label);
-                options.CurOffset = offset + 4;
+                display.CurOffset = offset + 4;
                 offset += label.Length + 1;
             }
             if (options.ShowAvg) {
                 label = $"avg:     {Unit}";
                 segments.Add(label);
-                options.AvgOffset = offset + 4;
+                display.AvgOffset = offset + 4;
                 offset += label.Length + 1;
             }
             if (options.ShowMax) {
                 label = $"max:     {Unit}";
                 segments.Add(label);
-                options.MaxOffset = offset + 4;
+                display.MaxOffset = offset + 4;
                 offset += label.Length + 1;
             }
             if (options.ShowScale) {
                 string dim = options.Horizontal ? "Y" : "X";
                 label = $"{dim}:     {Unit}";
                 segments.Add(label);
-                options.ScaleOffset = offset + 2;
+                display.ScaleOffset = offset + 2;
                 offset += label.Length + 1;
             }
             label = "[" + string.Join(" ", segments) + "]";
             if (label.Length < viewport.X - 2) {
                 offset = (viewport.X - label.Length) / 2;
                 viewport.Write(offset, viewport.Y - 1, label);
-                options.CurOffset += offset;
-                options.AvgOffset += offset;
-                options.MaxOffset += offset;
-                options.ScaleOffset += offset;
+                display.CurOffset += offset;
+                display.AvgOffset += offset;
+                display.MaxOffset += offset;
+                display.ScaleOffset += offset;
             } else {
-                options.CurOffset = -1;
-                options.AvgOffset = -1;
-                options.MaxOffset = -1;
-                options.ScaleOffset = -1;
+                display.CurOffset = -1; // FIXME: use Nullable
+                display.AvgOffset = -1;
+                display.MaxOffset = -1;
+                display.ScaleOffset = -1;
             }
         }
 	viewport.Save();
-    }
-
-    public void RemoveBuffers() {
-        viewports.Clear();
     }
 
     public void AddBuffer(DrawBuffer buffer, int offset_x, int offset_y, int x, int y, ChartOptions options) {
         AddViewPort(new ViewPort(buffer, offset_x, offset_y, x, y), options);
     }
 
-    private void DrawBarToViewPort(int vp, int t, int val, int max) {
-        ViewPort viewport = viewports[vp];
-        ChartOptions options = viewport_options[vp];
+    public void AddBuffer(DrawBuffer buffer, int offset_x, int offset_y, int x, int y) {
+        AddViewPort(new ViewPort(buffer, offset_x, offset_y, x, y), new ChartOptions());
+    }
+
+    public void RemoveDisplays() {
+        displays.Clear();
+    }
+
+    public void RemoveDisplaysForBuffer(DrawBuffer buffer) {
+        displays.RemoveAll(display => display.viewport.buffer == buffer);
+        if (displays.Count != 0) {
+            throw new Exception("removeall failed");
+        }
+    }
+
+    private void DrawBarToDisplay(int d, int t, int val, int max) {
+        ChartDisplay display = displays[d];
+        ViewPort viewport = display.viewport;
+        ChartOptions options = display.options;
 	int x, y, size, dx, dy;
 	List<string> blocks;
 
@@ -728,13 +815,13 @@ public class Chart {
             dy = 0;
         }
 
-        if (options.SampleCur == -1)
-            options.SampleCur = val;
-        options.SampleTotal += val;
-        if (val > options.SampleMax)
-            options.SampleMax = val;
-        options.Scale = max;
-        options.NumSamples++;
+        if (display.SampleCur == -1)
+            display.SampleCur = val;
+        display.SampleTotal += val;
+        if (val > display.SampleMax)
+            display.SampleMax = val;
+        display.Scale = max;
+        display.NumSamples++;
 
         //parent.Log($"DrawBarToVP t{t}, v{val}, m{max}\nx{x}, y{y}, s{size}, dx{dx}, dy{dy}");
 
@@ -759,40 +846,42 @@ public class Chart {
     }
 
     public void DrawBar(int t, int val, int max) {
-        for (int vp = 0, sz = viewports.Count; vp < sz; vp++) {
-            DrawBarToViewPort(vp, t, val, max);
+        for (int d = 0, sz = displays.Count; d < sz; d++) {
+            DrawBarToDisplay(d, t, val, max);
         }
     }
 
     public void StartDraw() {
-        for (int vp = 0, sz = viewports.Count; vp < sz; vp++) {
-            viewport_options[vp].SampleCur   = -1;
-            viewport_options[vp].SampleTotal = 0;
-            viewport_options[vp].SampleMax   = 0;
-            viewport_options[vp].Scale       = 0;
-            viewport_options[vp].NumSamples  = 0;
+        for (int d = 0, sz = displays.Count; d < sz; d++) {
+            displays[d].SampleCur   = -1;
+            displays[d].SampleTotal = 0;
+            displays[d].SampleMax   = 0;
+            displays[d].Scale       = 0;
+            displays[d].NumSamples  = 0;
         }
     }
 
     public void EndDraw() {
+        ChartDisplay display;
         ViewPort viewport;
         ChartOptions options;
         float avg;
-        for (int vp = 0, sz = viewports.Count; vp < sz; vp++) {
-            viewport = viewports[vp];
-            options = viewport_options[vp];
-            avg = (float)options.SampleTotal / (float)options.NumSamples;
-            if (options.ShowCur && options.CurOffset != -1 && options.SampleCur != -1) {
-                viewport.Write(options.CurOffset, viewport.Y - 1, $"{options.SampleCur,5:G4}");
+        for (int d = 0, sz = displays.Count; d < sz; d++) {
+            display = displays[d];
+            viewport = display.viewport;
+            options = display.options;
+            avg = (float)display.SampleTotal / (float)display.NumSamples;
+            if (options.ShowCur && display.CurOffset != -1 && display.SampleCur != -1) {
+                viewport.Write(display.CurOffset, viewport.Y - 1, $"{display.SampleCur,5:G4}");
             }
-            if (options.ShowAvg && options.AvgOffset != -1) {
-                viewport.Write(options.AvgOffset, viewport.Y - 1, $"{avg,5:G4}");
+            if (options.ShowAvg && display.AvgOffset != -1) {
+                viewport.Write(display.AvgOffset, viewport.Y - 1, $"{avg,5:G4}");
             }
-            if (options.ShowMax && options.MaxOffset != -1) {
-                viewport.Write(options.MaxOffset, viewport.Y - 1, $"{options.SampleMax,5:G4}");
+            if (options.ShowMax && display.MaxOffset != -1) {
+                viewport.Write(display.MaxOffset, viewport.Y - 1, $"{display.SampleMax,5:G4}");
             }
-            if (options.ShowScale && options.ScaleOffset != -1) {
-                viewport.Write(options.ScaleOffset, viewport.Y - 1, $"{options.Scale,5:G4}");
+            if (options.ShowScale && display.ScaleOffset != -1) {
+                viewport.Write(display.ScaleOffset, viewport.Y - 1, $"{display.Scale,5:G4}");
             }
         }
     }
