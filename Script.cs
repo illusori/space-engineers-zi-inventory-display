@@ -109,9 +109,6 @@ public Program() {
     FindCargoBlocks();
     FindBatteryBlocks();
 
-    SetupTimeChart();
-    SetupPowerChart();
-
     if (!Me.CustomName.Contains(_script_name)) {
         // Update our block to include our script name
         Me.CustomName = $"{Me.CustomName} - {_script_name}";
@@ -183,6 +180,7 @@ public void Main(string argument, UpdateType updateSource) {
                 long time = (_time[TimeOffset(-i)] * 1000L) / TimeSpan.TicksPerMillisecond;
                 Log($"  [T-{i,-2}] Load {load} in {time}us");
             }
+            Log($"Charts: {_charts.Count}, DrawBuffers: {_chart_buffers.Count}");
             FlushToPanels(PANELS_DEBUG);
         }
     } catch (Exception e) {
@@ -281,13 +279,6 @@ void UpdateInventoryText() {
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
         _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';''}\n";
-        /*
-        if (delta != 0) {
-            _inv_text += $"{(int)value,8} {kvp.Key} [{delta,0:+#;-#;0}]\n";
-        } else {
-            _inv_text += $"{(int)value,8} {kvp.Key}\n";
-        }
-        */
     }
 }
 
@@ -400,8 +391,8 @@ public void FindPanels() {
         found_ids.Add(id);
         if (!_chart_buffers.TryGetValue(id, out buffer)) {
             // 42x28 seems about right for 1x1 panel at 0.6
-            // FIXME: read panel size
-            buffer = new DrawBuffer(panel, 42, 28);
+            float scale = panel.SurfaceSize.X / 512F;
+            buffer = new DrawBuffer(panel, (int)(42F * scale), 28);
             _chart_buffers.Add(id, buffer);
         }
         // FIXME: read config, if config has changed: add buffers to charts.
@@ -410,11 +401,19 @@ public void FindPanels() {
         _charts[CHART_POWER_IN].RemoveDisplaysForBuffer(buffer);
         _charts[CHART_POWER_OUT].RemoveDisplaysForBuffer(buffer);
 
-	_charts[CHART_POWER_STORED].AddBuffer(buffer, 0, 0, 42, 9);
-	_charts[CHART_POWER_IN].AddBuffer(buffer, 0, 9, 42, 9);
-	_charts[CHART_POWER_OUT].AddBuffer(buffer, 0, 18, 42, 9);
+	_charts[CHART_POWER_STORED].AddBuffer(buffer, 0, 0, buffer.X, 9);
+	_charts[CHART_POWER_IN].AddBuffer(buffer, 0, 9, buffer.X, 9);
+	_charts[CHART_POWER_OUT].AddBuffer(buffer, 0, 18, buffer.X, 9);
     }
-    // FIXME: prune old ids in _chart_buffers
+    // Prune old ids in _chart_buffers
+    HashSet<long> old_ids = new HashSet<long>(_chart_buffers.Keys);
+    old_ids.ExceptWith(found_ids);
+    foreach (long missing_id in old_ids) {
+        foreach (Chart chart in _charts) {
+            chart.RemoveDisplaysForBuffer(_chart_buffers[missing_id]);
+        }
+        _chart_buffers.Remove(missing_id);
+    }
 }
 
 public void FindInventoryBlocks() {
@@ -481,18 +480,6 @@ public void Log(string s) {
     Echo(s);
 }
 
-public void SetupTimeChart() {
-    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 0, 0, 42, 12);
-    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 0, 11, 21, 6);
-    //_charts[CHART_TIME].AddBuffer(_chart_buffer, 20, 11, 22, 6);
-}
-
-public void SetupPowerChart() {
-    //_charts[CHART_POWER_STORED].AddBuffer(_chart_buffer, 0, 0, 42, 9);
-    //_charts[CHART_POWER_IN].AddBuffer(_chart_buffer, 0, 9, 42, 9);
-    //_charts[CHART_POWER_OUT].AddBuffer(_chart_buffer, 0, 18, 42, 9);
-}
-
 public void ResetChartBuffers() {
     foreach (DrawBuffer buffer in _chart_buffers.Values) {
         buffer.Reset();
@@ -506,11 +493,7 @@ public void FlushChartBuffers() {
 }
 
 public void UpdateTimeChart() {
-    //_chart_buffer.Reset(); // FIXME: figure out where this goes
-
     if (_charts[CHART_TIME].IsViewed) {
-        ClearPanels(PANELS_CHART);
-
         int max = (int)_time.Max();
         _charts[CHART_TIME].StartDraw();
         // Start at -1 because "now" hasn't been updated yet.
@@ -519,16 +502,11 @@ public void UpdateTimeChart() {
             _charts[CHART_TIME].DrawBar(i, (int)_time[TimeOffset(-i - 1)], max);
         }
         _charts[CHART_TIME].EndDraw();
-
-        //WritePanels(PANELS_CHART, _chart_buffer.ToString());
     }
 }
 
 public void UpdatePowerChart() {
     if (_charts[CHART_POWER_STORED].IsViewed || _charts[CHART_POWER_IN].IsViewed || _charts[CHART_POWER_OUT].IsViewed) {
-        ClearPanels(PANELS_CHART);
-
-        //_chart_buffer.Reset();
 	int stored_max = (int)_battery[BatteryOffset(0)].MaxStoredPower;
 	int in_max = 0; //(int)_battery[BatteryOffset(0)].MaxInput;
 	int out_max = 0; //(int)_battery[BatteryOffset(0)].MaxOutput;
@@ -552,8 +530,6 @@ public void UpdatePowerChart() {
         _charts[CHART_POWER_STORED].EndDraw();
         _charts[CHART_POWER_IN].EndDraw();
         _charts[CHART_POWER_OUT].EndDraw();
-
-        //WritePanels(PANELS_CHART, _chart_buffer.ToString());
     }
 }
 
@@ -783,9 +759,6 @@ public class Chart {
 
     public void RemoveDisplaysForBuffer(DrawBuffer buffer) {
         displays.RemoveAll(display => display.viewport.buffer == buffer);
-        if (displays.Count != 0) {
-            throw new Exception("removeall failed");
-        }
     }
 
     private void DrawBarToDisplay(int d, int t, int val, int max) {
