@@ -23,9 +23,10 @@ const int CYCLES_BATTERY = 3;
 const int SIZE_CYCLES    = 4;
 
 const int PANELS_DEBUG = 0;
-const int PANELS_INV   = 1;
-const int PANELS_CHART = 2;
-const int SIZE_PANELS  = 3;
+const int PANELS_WARN  = 1;
+const int PANELS_INV   = 2;
+const int PANELS_CHART = 3;
+const int SIZE_PANELS  = 4;
 
 const int CHART_TIME         = 0;
 const int CHART_POWER_STORED = 1;
@@ -33,13 +34,22 @@ const int CHART_POWER_IN     = 2;
 const int CHART_POWER_OUT    = 3;
 const int SIZE_CHARTS        = 4;
 
-List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@InventoryDisplay", "@ChartDisplay" };
+Dictionary<string, int> _chart_names = new Dictionary<string, int>() {
+    { "time",         CHART_TIME },
+    { "power_stored", CHART_POWER_STORED },
+    { "power_in",     CHART_POWER_IN },
+    { "power_out",    CHART_POWER_OUT }
+};
+
+MyIni _ini = new MyIni();
+
+List<string> _panel_tags = new List<string>(SIZE_PANELS) { "@DebugDisplay", "@WarningDisplay", "@InventoryDisplay", "@ChartDisplay" };
 
 /* Genuine global state */
 List<int> _cycles = new List<int>(SIZE_CYCLES);
 
 List<List<IMyTextPanel>> _panels = new List<List<IMyTextPanel>>(SIZE_PANELS);
-List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "", "" };
+List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "", "", "", "" };
 
 List<Chart> _charts = new List<Chart>(SIZE_CHARTS);
 
@@ -378,13 +388,19 @@ public void FindPanels() {
         for (int j = 0, szj = _panels[i].Count; j < szj; j++) {
             _panels[i][j].ContentType = ContentType.TEXT_AND_IMAGE;
             _panels[i][j].Font = "Monospace";
-            _panels[i][j].FontSize = 0.6F;
+            _panels[i][j].FontSize = 0.5F;
+            _panels[i][j].TextPadding = 0.5F;
             _panels[i][j].Alignment = TextAlignment.LEFT;
         }
     }
     // Special logic for ChartPanels, need to set up buffers and read their config.
     HashSet<long> found_ids = new HashSet<long>(_panels[PANELS_CHART].Count);
     DrawBuffer buffer;
+
+    MyIniParseResult parse_result;
+    List<string> sections = new List<string>();
+    int chart_kind, width, height, x, y;
+    string name;
     for (int i = 0, sz = _panels[PANELS_CHART].Count; i < sz; i++) {
         IMyTextPanel panel = _panels[PANELS_CHART][i];
         long id = panel.EntityId;
@@ -392,18 +408,37 @@ public void FindPanels() {
         if (!_chart_buffers.TryGetValue(id, out buffer)) {
             // 42x28 seems about right for 1x1 panel at 0.6
             float scale = panel.SurfaceSize.X / 512F;
-            buffer = new DrawBuffer(panel, (int)(42F * scale), 28);
+            buffer = new DrawBuffer(panel, (int)(52F * scale), 35);
             _chart_buffers.Add(id, buffer);
+        } else {
+            buffer.Clear();
+            buffer.Save();
         }
-        // FIXME: read config, if config has changed: add buffers to charts.
+        // FIXME: only if config has changed
+        if (!_ini.TryParse(panel.CustomData, out parse_result)) {
+            Warning($"Chart panel parse error on panel '{panel.CustomName}' line {parse_result.LineNo}: {parse_result.Error}");
+            found_ids.Remove(id); // Move along. Nothing to see. Pretend we never saw the panel.
+            continue;
+        }
+        _ini.GetSections(sections);
+        foreach (string section in sections) {
+            //Warning($"Found section {section}");
+            name = _ini.Get(section, "chart").ToString(section);
+            if (!_chart_names.TryGetValue(name, out chart_kind)) {
+                Warning($"Chart panel '{panel.CustomName}' error in section '{section}': '{name}' is not the name of a known chart type."); // FIXME: list chart names
+                continue;
+            }
+            width = _ini.Get(section, "width").ToInt32(buffer.X);
+            height = _ini.Get(section, "height").ToInt32(buffer.Y);
+            x = _ini.Get(section, "x").ToInt32(0);
+            y = _ini.Get(section, "y").ToInt32(0);
+            // horizontal, etc ChartOptions settings.
 
-        _charts[CHART_POWER_STORED].RemoveDisplaysForBuffer(buffer);
-        _charts[CHART_POWER_IN].RemoveDisplaysForBuffer(buffer);
-        _charts[CHART_POWER_OUT].RemoveDisplaysForBuffer(buffer);
-
-	_charts[CHART_POWER_STORED].AddBuffer(buffer, 0, 0, buffer.X, 9);
-	_charts[CHART_POWER_IN].AddBuffer(buffer, 0, 9, buffer.X, 9);
-	_charts[CHART_POWER_OUT].AddBuffer(buffer, 0, 18, buffer.X, 9);
+            // Hmm, removing it here means we can't have multiples of same chart on same panel
+            // TODO: maybe keep track of those chart_kind we've removed already in the sections loop?
+            _charts[chart_kind].RemoveDisplaysForBuffer(buffer);
+    	    _charts[chart_kind].AddBuffer(buffer, x, y, width, height);
+        }
     }
     // Prune old ids in _chart_buffers
     HashSet<long> old_ids = new HashSet<long>(_chart_buffers.Keys);
@@ -480,6 +515,11 @@ public void Log(string s) {
     Echo(s);
 }
 
+public void Warning(string s) {
+    WritePanels(PANELS_WARN, $"[{DateTime.Now,11:HH:mm:ss.ff}] {s}\n");
+    FlushToPanels(PANELS_WARN); // Never clear buffer and and always immediately flush.
+}
+
 public void ResetChartBuffers() {
     foreach (DrawBuffer buffer in _chart_buffers.Values) {
         buffer.Reset();
@@ -494,12 +534,12 @@ public void FlushChartBuffers() {
 
 public void UpdateTimeChart() {
     if (_charts[CHART_TIME].IsViewed) {
-        int max = (int)_time.Max();
+        double max = (double)_time.Max();
         _charts[CHART_TIME].StartDraw();
         // Start at -1 because "now" hasn't been updated yet.
         for (int i = 0; i < TIME_HISTORY - 1; i++) {
             //Log($"Update T-{i,-2}");
-            _charts[CHART_TIME].DrawBar(i, (int)_time[TimeOffset(-i - 1)], max);
+            _charts[CHART_TIME].DrawBar(i, (double)_time[TimeOffset(-i - 1)], max);
         }
         _charts[CHART_TIME].EndDraw();
     }
@@ -507,25 +547,25 @@ public void UpdateTimeChart() {
 
 public void UpdatePowerChart() {
     if (_charts[CHART_POWER_STORED].IsViewed || _charts[CHART_POWER_IN].IsViewed || _charts[CHART_POWER_OUT].IsViewed) {
-	int stored_max = (int)_battery[BatteryOffset(0)].MaxStoredPower;
-	int in_max = 0; //(int)_battery[BatteryOffset(0)].MaxInput;
-	int out_max = 0; //(int)_battery[BatteryOffset(0)].MaxOutput;
+	double stored_max = (double)_battery[BatteryOffset(0)].MaxStoredPower;
+	double in_max = 0.0; //(double)_battery[BatteryOffset(0)].MaxInput;
+	double out_max = 0.0; //(double)_battery[BatteryOffset(0)].MaxOutput;
 	for (int i = 0; i < BATTERY_HISTORY; i++) {
-            if ((int)_battery[BatteryOffset(-i)].MaxStoredPower > stored_max)
-                stored_max = (int)_battery[BatteryOffset(-i)].MaxStoredPower;
-            if ((int)_battery[BatteryOffset(-i)].CurrentInput > in_max)
-                in_max = (int)_battery[BatteryOffset(-i)].CurrentInput;
-            if ((int)_battery[BatteryOffset(-i)].CurrentOutput > out_max)
-                out_max = (int)_battery[BatteryOffset(-i)].CurrentOutput;
+            if ((double)_battery[BatteryOffset(-i)].MaxStoredPower > stored_max)
+                stored_max = (double)_battery[BatteryOffset(-i)].MaxStoredPower;
+            if ((double)_battery[BatteryOffset(-i)].CurrentInput > in_max)
+                in_max = (double)_battery[BatteryOffset(-i)].CurrentInput;
+            if ((double)_battery[BatteryOffset(-i)].CurrentOutput > out_max)
+                out_max = (double)_battery[BatteryOffset(-i)].CurrentOutput;
 	}
         _charts[CHART_POWER_STORED].StartDraw();
         _charts[CHART_POWER_IN].StartDraw();
         _charts[CHART_POWER_OUT].StartDraw();
 	for (int i = 0; i < BATTERY_HISTORY; i++) {
 	    //Log($"Update T-{i,-2}");
-	    _charts[CHART_POWER_STORED].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentStoredPower, stored_max);
-	    _charts[CHART_POWER_IN].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentInput, in_max);
-	    _charts[CHART_POWER_OUT].DrawBar(i, (int)_battery[BatteryOffset(-i)].CurrentOutput, out_max);
+	    _charts[CHART_POWER_STORED].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentStoredPower, (double)stored_max);
+	    _charts[CHART_POWER_IN].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentInput, (double)in_max);
+	    _charts[CHART_POWER_OUT].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentOutput, (double)out_max);
 	}
         _charts[CHART_POWER_STORED].EndDraw();
         _charts[CHART_POWER_IN].EndDraw();
@@ -630,8 +670,10 @@ public class ChartDisplay {
     public ViewPort viewport;
     public ChartOptions options;
 
-    public int CurOffset = 0, AvgOffset = 0, MaxOffset = 0, ScaleOffset = 0;
-    public int SampleCur, SampleTotal, SampleMax, NumSamples, Scale; // h4x
+    public int? CurOffset = 0, AvgOffset = 0, MaxOffset = 0, ScaleOffset = 0;
+    public double? SampleCur;
+    public double SampleTotal, SampleMax, Scale;
+    public int NumSamples;
 
     public ChartDisplay(ViewPort viewport, ChartOptions options) {
         this.viewport = viewport;
@@ -736,10 +778,10 @@ public class Chart {
                 display.MaxOffset += offset;
                 display.ScaleOffset += offset;
             } else {
-                display.CurOffset = -1; // FIXME: use Nullable
-                display.AvgOffset = -1;
-                display.MaxOffset = -1;
-                display.ScaleOffset = -1;
+                display.CurOffset = null;
+                display.AvgOffset = null;
+                display.MaxOffset = null;
+                display.ScaleOffset = null;
             }
         }
 	viewport.Save();
@@ -761,7 +803,7 @@ public class Chart {
         displays.RemoveAll(display => display.viewport.buffer == buffer);
     }
 
-    private void DrawBarToDisplay(int d, int t, int val, int max) {
+    private void DrawBarToDisplay(int d, int t, double val, double max) {
         ChartDisplay display = displays[d];
         ViewPort viewport = display.viewport;
         ChartOptions options = display.options;
@@ -788,7 +830,7 @@ public class Chart {
             dy = 0;
         }
 
-        if (display.SampleCur == -1)
+        if (!display.SampleCur.HasValue)
             display.SampleCur = val;
         display.SampleTotal += val;
         if (val > display.SampleMax)
@@ -798,7 +840,7 @@ public class Chart {
 
         //parent.Log($"DrawBarToVP t{t}, v{val}, m{max}\nx{x}, y{y}, s{size}, dx{dx}, dy{dy}");
 
-	double scaled = (double)val * (double)size / (double)max;
+	double scaled = val * size / max;
 	int repeat = (int)scaled;
 	int fraction = (int)((scaled * 8.0) % (double)size);
 
@@ -806,11 +848,9 @@ public class Chart {
 
 	for (int i = 0; i < size; i++) {
 	    if (i < repeat) {
-		//buffer.Buffer[y][x] = blocks[8][0];
-		viewport.Write(x, y, blocks[8]);
+		viewport.Write(x, y, blocks[8]); // TODO: unroll buffer write?
 	    } else if (i == repeat) {
-		//buffer.Buffer[y][x] = blocks[fraction][0];
-		viewport.Write(x, y, blocks[fraction]);
+		viewport.Write(x, y, blocks[fraction]); // TODO: unroll buffer write?
 		break;
 	    }
 	    x += dx;
@@ -818,7 +858,7 @@ public class Chart {
 	}
     }
 
-    public void DrawBar(int t, int val, int max) {
+    public void DrawBar(int t, double val, double max) {
         for (int d = 0, sz = displays.Count; d < sz; d++) {
             DrawBarToDisplay(d, t, val, max);
         }
@@ -826,11 +866,11 @@ public class Chart {
 
     public void StartDraw() {
         for (int d = 0, sz = displays.Count; d < sz; d++) {
-            displays[d].SampleCur   = -1;
-            displays[d].SampleTotal = 0;
-            displays[d].SampleMax   = 0;
-            displays[d].Scale       = 0;
-            displays[d].NumSamples  = 0;
+            displays[d].SampleCur   = null;
+            displays[d].SampleTotal = 0.0;
+            displays[d].SampleMax   = 0.0;
+            displays[d].Scale       = 0.0;
+            displays[d].NumSamples  = 1;
         }
     }
 
@@ -844,16 +884,16 @@ public class Chart {
             viewport = display.viewport;
             options = display.options;
             avg = (float)display.SampleTotal / (float)display.NumSamples;
-            if (options.ShowCur && display.CurOffset != -1 && display.SampleCur != -1) {
+            if (options.ShowCur && display.CurOffset.HasValue && display.SampleCur.HasValue) {
                 viewport.Write(display.CurOffset, viewport.Y - 1, $"{display.SampleCur,5:G4}");
             }
-            if (options.ShowAvg && display.AvgOffset != -1) {
+            if (options.ShowAvg && display.AvgOffset.HasValue) {
                 viewport.Write(display.AvgOffset, viewport.Y - 1, $"{avg,5:G4}");
             }
-            if (options.ShowMax && display.MaxOffset != -1) {
+            if (options.ShowMax && display.MaxOffset.HasValue) {
                 viewport.Write(display.MaxOffset, viewport.Y - 1, $"{display.SampleMax,5:G4}");
             }
-            if (options.ShowScale && display.ScaleOffset != -1) {
+            if (options.ShowScale && display.ScaleOffset.HasValue) {
                 viewport.Write(display.ScaleOffset, viewport.Y - 1, $"{display.Scale,5:G4}");
             }
         }
