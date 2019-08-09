@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.4.1";
+string _script_version = "1.4.2";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -61,7 +61,7 @@ List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
 
 List<long> _load = new List<long>();
 List<long> _time = new List<long>();
-List<Dictionary<string, MyFixedPoint>> _item_counts = new List<Dictionary<string, MyFixedPoint>>(INV_HISTORY);
+List<Dictionary<string, double>> _item_counts = new List<Dictionary<string, double>>(INV_HISTORY);
 
 // panel.EntityId => DrawBuffer
 Dictionary<long, DrawBuffer> _chart_buffers = new Dictionary<long, DrawBuffer>();
@@ -81,7 +81,6 @@ List<BatterySample> _battery = new List<BatterySample>(BATTERY_HISTORY);
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
 IMyInventory inv = null;
-MyFixedPoint existing = (MyFixedPoint)0.0;
 
 public Program() {
     _script_title = $"{_script_name} v{_script_version}";
@@ -100,7 +99,7 @@ public Program() {
         _time.Add(0L);
     }
     for (int i = 0; i < INV_HISTORY; i++) {
-        _item_counts.Add(new Dictionary<string, MyFixedPoint>());
+        _item_counts.Add(new Dictionary<string, double>());
     }
     for (int i = 0; i < CARGO_HISTORY; i++) {
         _cargo.Add(new CargoSample());
@@ -232,6 +231,7 @@ public void UpdateInventoryStats() {
             }
             //Log("item in items");
             string item_name = null;
+            double existing = 0.0;
             foreach (MyInventoryItem item in items) {
                 if (item == null) {
                     //Log("Found null item");
@@ -240,9 +240,9 @@ public void UpdateInventoryStats() {
                 //Log($"Found {item.Type.TypeId} {item.Type.SubtypeId} {item.Amount}");
                 //Log($"Found {item.Type.SubtypeId} {item.Amount}");
                 item_name = GetItemName(item.Type);
-                existing = (MyFixedPoint)0.0;
+                existing = 0.0;
                 _item_counts[current].TryGetValue(item_name, out existing);
-                _item_counts[current][item_name] = MyFixedPoint.AddSafe(existing, item.Amount);
+                _item_counts[current][item_name] = existing + (double)item.Amount;
             }
         }
     }
@@ -280,14 +280,14 @@ public void UpdateCargoStats() {
 
 void UpdateInventoryText() {
     int last = InvOffset(-INV_SAMPLES), current = InvOffset(0);
-    MyFixedPoint old, value;
+    double old, value;
     int delta;
     _inv_text = "";
-    foreach (KeyValuePair<string, MyFixedPoint> kvp in _item_counts[current]) {
+    foreach (KeyValuePair<string, double> kvp in _item_counts[current].OrderBy(key => -key.Value)) {
         value = kvp.Value;
-        old = (MyFixedPoint)0.0;
+        old = 0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
-        delta = (int)MyFixedPoint.AddSafe(value, old == null ? -value : -old) / INV_SAMPLES;
+        delta = (int)(value - old) / INV_SAMPLES;
         _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';''}\n";
     }
 }
@@ -885,16 +885,16 @@ public class Chart {
             options = display.options;
             avg = (float)display.SampleTotal / (float)display.NumSamples;
             if (options.ShowCur && display.CurOffset.HasValue && display.SampleCur.HasValue) {
-                viewport.Write(display.CurOffset, viewport.Y - 1, $"{display.SampleCur,5:G4}");
+                viewport.Write((int)display.CurOffset, viewport.Y - 1, $"{display.SampleCur,5:G4}");
             }
             if (options.ShowAvg && display.AvgOffset.HasValue) {
-                viewport.Write(display.AvgOffset, viewport.Y - 1, $"{avg,5:G4}");
+                viewport.Write((int)display.AvgOffset, viewport.Y - 1, $"{avg,5:G4}");
             }
             if (options.ShowMax && display.MaxOffset.HasValue) {
-                viewport.Write(display.MaxOffset, viewport.Y - 1, $"{display.SampleMax,5:G4}");
+                viewport.Write((int)display.MaxOffset, viewport.Y - 1, $"{display.SampleMax,5:G4}");
             }
             if (options.ShowScale && display.ScaleOffset.HasValue) {
-                viewport.Write(display.ScaleOffset, viewport.Y - 1, $"{display.Scale,5:G4}");
+                viewport.Write((int)display.ScaleOffset, viewport.Y - 1, $"{display.Scale,5:G4}");
             }
         }
     }
