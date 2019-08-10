@@ -147,8 +147,12 @@ public void Main(string argument, UpdateType updateSource) {
         if ((updateSource & UpdateType.Update100) != 0) {
 	    DateTime start_time = DateTime.Now;
             // FIXME: System.Diagnostics.Stopwatch
+            // Runtime.LastRunTimeMs
+            // Runtime.TimeSinceLastRun
 
 	    _cycles[CYCLES_TOP]++;
+
+	    _time[TimeOffset(-1)] = Runtime.LastRunTimeMs;
 
             ClearPanels(PANELS_DEBUG);
 
@@ -177,27 +181,33 @@ public void Main(string argument, UpdateType updateSource) {
             FlushChartBuffers();
 
 	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
-	    _time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
+	    //_time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
 
             // FIXME: across SAMPLES not HISTORY
-	    long load_avg = _load.Sum() / LOAD_HISTORY;
-	    long time_avg = (_time.Sum() * 1000L) / (TIME_HISTORY * TimeSpan.TicksPerMillisecond);
+	    long load_avg = _load.Sum() / (long)LOAD_HISTORY;
+	    long time_avg = TimeAsUsec(_time.Sum()) / (long)TIME_HISTORY;
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
 
             for (int i = 0; i < 16; i++) {
                 long load = _load[LoadOffset(-i)];
-                long time = (_time[TimeOffset(-i)] * 1000L) / TimeSpan.TicksPerMillisecond;
+                long time = TimeAsUsec(_time[TimeOffset(-i)]);
                 Log($"  [T-{i,-2}] Load {load} in {time}us");
             }
             Log($"Charts: {_charts.Count}, DrawBuffers: {_chart_buffers.Count}");
             FlushToPanels(PANELS_DEBUG);
         }
     } catch (Exception e) {
-        Log("An exception occurred during script execution.");
-        Log($"Exception: {e}\n---");
+        string mess = $"An exception occurred during script execution.\nException: {e}\n---");
+        Log(mess);
+        Warn(mess);
         FlushToPanels(PANELS_DEBUG);
         throw;
     }
+}
+
+public long TimeAsUsec(long t) {
+    //return (t * 1000L) / TimeSpan.TicksPerMillisecond;
+    return t * 1000L;
 }
 
 public void UpdateInventoryStats() {
