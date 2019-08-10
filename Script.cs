@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.4.2";
+string _script_version = "1.4.4";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -28,17 +28,23 @@ const int PANELS_INV   = 2;
 const int PANELS_CHART = 3;
 const int SIZE_PANELS  = 4;
 
-const int CHART_TIME         = 0;
-const int CHART_POWER_STORED = 1;
-const int CHART_POWER_IN     = 2;
-const int CHART_POWER_OUT    = 3;
-const int SIZE_CHARTS        = 4;
+const int CHART_TIME              = 0;
+const int CHART_POWER_STORED      = 1;
+const int CHART_POWER_IN          = 2;
+const int CHART_POWER_OUT         = 3;
+const int CHART_CARGO_USED_MASS   = 4;
+const int CHART_CARGO_USED_VOLUME = 5;
+const int CHART_CARGO_FREE_VOLUME = 6;
+const int SIZE_CHARTS             = 7;
 
 Dictionary<string, int> _chart_names = new Dictionary<string, int>() {
-    { "time",         CHART_TIME },
-    { "power_stored", CHART_POWER_STORED },
-    { "power_in",     CHART_POWER_IN },
-    { "power_out",    CHART_POWER_OUT }
+    { "time",              CHART_TIME },
+    { "power_stored",      CHART_POWER_STORED },
+    { "power_in",          CHART_POWER_IN },
+    { "power_out",         CHART_POWER_OUT },
+    { "cargo_used_mass",   CHART_CARGO_USED_MASS },
+    { "cargo_used_volume", CHART_CARGO_USED_VOLUME },
+    { "cargo_free_volume", CHART_CARGO_FREE_VOLUME }
 };
 
 MyIni _ini = new MyIni();
@@ -59,8 +65,8 @@ List<IMyTerminalBlock> _inventory_blocks = new List<IMyTerminalBlock>();
 List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
 
-List<long> _load = new List<long>();
-List<long> _time = new List<long>();
+List<long> _load = new List<long>(); // FIXME: merge _load and _time into LoadSample
+List<double> _time = new List<double>();
 List<Dictionary<string, double>> _item_counts = new List<Dictionary<string, double>>(INV_HISTORY);
 
 // panel.EntityId => DrawBuffer
@@ -112,6 +118,9 @@ public Program() {
     _charts.Add(new Chart("Stored Power", "MWh"));
     _charts.Add(new Chart("Power In", "MW"));
     _charts.Add(new Chart("Power Out", "MW"));
+    _charts.Add(new Chart("Cargo Mass", "kt"));
+    _charts.Add(new Chart("Cargo Vol", "m3"));
+    _charts.Add(new Chart("Cargo Free", "m3"));
 
     FindPanels();
     FindInventoryBlocks();
@@ -160,8 +169,14 @@ public void Main(string argument, UpdateType updateSource) {
 
             if ((_cycles[CYCLES_TOP] % 30) == 0) {
                 FindPanels();
+            }
+            if ((_cycles[CYCLES_TOP] % 30) == 1) {
                 FindInventoryBlocks();
+            }
+            if ((_cycles[CYCLES_TOP] % 30) == 2) {
                 FindCargoBlocks();
+            }
+            if ((_cycles[CYCLES_TOP] % 30) == 3) {
                 FindBatteryBlocks();
             }
 
@@ -175,10 +190,11 @@ public void Main(string argument, UpdateType updateSource) {
 
             FlushToPanels(PANELS_INV);
 
-            ResetChartBuffers();
-            UpdateTimeChart();
-            UpdatePowerChart();
-            FlushChartBuffers();
+	    ResetChartBuffers();
+	    UpdateTimeChart();
+	    UpdatePowerCharts();
+	    UpdateCargoCharts();
+	    FlushChartBuffers();
 
 	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
 	    //_time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
@@ -188,7 +204,8 @@ public void Main(string argument, UpdateType updateSource) {
 	    long time_avg = TimeAsUsec(_time.Sum()) / (long)TIME_HISTORY;
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
 
-            for (int i = 0; i < 16; i++) {
+            // Start at T-1 - exec time hasn't been updated yet.
+            for (int i = 1; i < 16; i++) {
                 long load = _load[LoadOffset(-i)];
                 long time = TimeAsUsec(_time[TimeOffset(-i)]);
                 Log($"  [T-{i,-2}] Load {load} in {time}us");
@@ -197,17 +214,17 @@ public void Main(string argument, UpdateType updateSource) {
             FlushToPanels(PANELS_DEBUG);
         }
     } catch (Exception e) {
-        string mess = $"An exception occurred during script execution.\nException: {e}\n---");
+        string mess = $"An exception occurred during script execution.\nException: {e}\n---";
         Log(mess);
-        Warn(mess);
+        Warning(mess);
         FlushToPanels(PANELS_DEBUG);
         throw;
     }
 }
 
-public long TimeAsUsec(long t) {
+public long TimeAsUsec(double t) {
     //return (t * 1000L) / TimeSpan.TicksPerMillisecond;
-    return t * 1000L;
+    return (long)(t * 1000.0);
 }
 
 public void UpdateInventoryStats() {
@@ -424,7 +441,7 @@ public void FindPanels() {
             buffer.Clear();
             buffer.Save();
         }
-        // FIXME: only if config has changed
+        // FIXME: only if config has changed (panel.CustomData.GetHashCode() will do)
         if (!_ini.TryParse(panel.CustomData, out parse_result)) {
             Warning($"Chart panel parse error on panel '{panel.CustomName}' line {parse_result.LineNo}: {parse_result.Error}");
             found_ids.Remove(id); // Move along. Nothing to see. Pretend we never saw the panel.
@@ -544,18 +561,18 @@ public void FlushChartBuffers() {
 
 public void UpdateTimeChart() {
     if (_charts[CHART_TIME].IsViewed) {
-        double max = (double)_time.Max();
+        double max = TimeAsUsec(_time.Max());
         _charts[CHART_TIME].StartDraw();
         // Start at -1 because "now" hasn't been updated yet.
         for (int i = 0; i < TIME_HISTORY - 1; i++) {
             //Log($"Update T-{i,-2}");
-            _charts[CHART_TIME].DrawBar(i, (double)_time[TimeOffset(-i - 1)], max);
+            _charts[CHART_TIME].DrawBar(i, TimeAsUsec(_time[TimeOffset(-i - 1)]), max);
         }
         _charts[CHART_TIME].EndDraw();
     }
 }
 
-public void UpdatePowerChart() {
+public void UpdatePowerCharts() {
     if (_charts[CHART_POWER_STORED].IsViewed || _charts[CHART_POWER_IN].IsViewed || _charts[CHART_POWER_OUT].IsViewed) {
 	double stored_max = (double)_battery[BatteryOffset(0)].MaxStoredPower;
 	double in_max = 0.0; //(double)_battery[BatteryOffset(0)].MaxInput;
@@ -580,6 +597,39 @@ public void UpdatePowerChart() {
         _charts[CHART_POWER_STORED].EndDraw();
         _charts[CHART_POWER_IN].EndDraw();
         _charts[CHART_POWER_OUT].EndDraw();
+    }
+}
+
+public void UpdateCargoCharts() {
+    if (_charts[CHART_CARGO_USED_MASS].IsViewed || _charts[CHART_CARGO_USED_VOLUME].IsViewed || _charts[CHART_CARGO_FREE_VOLUME].IsViewed) {
+	double max_volume = (double)_cargo[CargoOffset(0)].MaxVolume;
+	double used_mass_max = 0.0;
+	double used_volume_max = 0.0;
+	double free_volume_max = 0.0;
+        double val;
+	for (int i = 0; i < CARGO_HISTORY; i++) {
+            val = (double)_cargo[CargoOffset(-i)].UsedMass;
+            if (val > used_mass_max)
+                used_mass_max = val;
+            val = (double)_cargo[CargoOffset(-i)].UsedVolume;
+            if (val > used_volume_max)
+                used_volume_max = val;
+            val = (double)_cargo[CargoOffset(-i)].MaxVolume - (double)_cargo[CargoOffset(-i)].UsedVolume;
+            if (val > free_volume_max)
+                free_volume_max = val;
+	}
+        _charts[CHART_CARGO_USED_MASS].StartDraw();
+        _charts[CHART_CARGO_USED_VOLUME].StartDraw();
+        _charts[CHART_CARGO_FREE_VOLUME].StartDraw();
+	for (int i = 0; i < CARGO_HISTORY; i++) {
+	    //Log($"Update T-{i,-2}");
+	    _charts[CHART_CARGO_USED_MASS].DrawBar(i, (double)_cargo[CargoOffset(-i)].UsedMass / 1000000.0, (double)used_mass_max / 1000000.0);
+	    _charts[CHART_CARGO_USED_VOLUME].DrawBar(i, (double)_cargo[CargoOffset(-i)].UsedVolume, (double)used_volume_max);
+	    _charts[CHART_CARGO_FREE_VOLUME].DrawBar(i, (double)_cargo[CargoOffset(-i)].MaxVolume - (double)_cargo[CargoOffset(-i)].UsedVolume, (double)free_volume_max);
+	}
+        _charts[CHART_CARGO_USED_MASS].EndDraw();
+        _charts[CHART_CARGO_USED_VOLUME].EndDraw();
+        _charts[CHART_CARGO_FREE_VOLUME].EndDraw();
     }
 }
 
@@ -642,7 +692,7 @@ public class DrawBuffer {
 
 public class ViewPort {
     public DrawBuffer buffer;
-    private int offsetX, offsetY;
+    public int offsetX, offsetY;
     public int X, Y;
 
     public ViewPort(DrawBuffer buffer, int offset_x, int offset_y, int x, int y) {
@@ -856,11 +906,14 @@ public class Chart {
 
 	fraction = fraction >= 4 ? 4 : 0; // Only half block is implemented in font.
 
+        // FIXME: unroll x/y versions and i < repeat and i == repeat cases.
 	for (int i = 0; i < size; i++) {
 	    if (i < repeat) {
-		viewport.Write(x, y, blocks[8]); // TODO: unroll buffer write?
+                viewport.buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[8][0];
+		//viewport.Write(x, y, blocks[8]); // TODO: unroll buffer write?
 	    } else if (i == repeat) {
-		viewport.Write(x, y, blocks[fraction]); // TODO: unroll buffer write?
+                viewport.buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[fraction][0];
+		//viewport.Write(x, y, blocks[fraction]); // TODO: unroll buffer write?
 		break;
 	    }
 	    x += dx;
