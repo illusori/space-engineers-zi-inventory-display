@@ -1,18 +1,16 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.4.4";
+string _script_version = "1.4.5";
 
 string _script_title = null;
 string _script_title_nl = null;
 
 const int INV_HISTORY     = 100;
 const int LOAD_HISTORY    = 100;
-const int TIME_HISTORY    = 100;
 const int CARGO_HISTORY   = 100;
 const int BATTERY_HISTORY = 100;
 
 const int INV_SAMPLES     = 10;
 const int LOAD_SAMPLES    = 10;
-const int TIME_SAMPLES    = 10;
 const int CARGO_SAMPLES   = 10;
 const int BATTERY_SAMPLES = 10;
 
@@ -65,24 +63,31 @@ List<IMyTerminalBlock> _inventory_blocks = new List<IMyTerminalBlock>();
 List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
 
-List<long> _load = new List<long>(); // FIXME: merge _load and _time into LoadSample
-List<double> _time = new List<double>();
-List<Dictionary<string, double>> _item_counts = new List<Dictionary<string, double>>(INV_HISTORY);
 
-// panel.EntityId => DrawBuffer
-Dictionary<long, DrawBuffer> _chart_buffers = new Dictionary<long, DrawBuffer>();
+class LoadSample {
+    long Load;
+    double Time;
+}
 
 class CargoSample {
     public MyFixedPoint UsedMass, UsedVolume, MaxVolume;
 }
 
-List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
-
 class BatterySample {
     public float CurrentStoredPower, MaxStoredPower, CurrentInput, MaxInput, CurrentOutput, MaxOutput;
 }
 
+List<LoadSample> _load = new List<LoadSample>();
+List<Dictionary<string, double>> _item_counts = new List<Dictionary<string, double>>(INV_HISTORY);
+List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
 List<BatterySample> _battery = new List<BatterySample>(BATTERY_HISTORY);
+
+
+// panel.EntityId => DrawBuffer
+Dictionary<long, DrawBuffer> _chart_buffers = new Dictionary<long, DrawBuffer>();
+
+long load_sample_total = 0;
+double time_sample_total = 0.0;
 
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
@@ -99,10 +104,7 @@ public Program() {
         _panels.Add(new List<IMyTextPanel>());
     }
     for (int i = 0; i < LOAD_HISTORY; i++) {
-        _load.Add(0L);
-    }
-    for (int i = 0; i < TIME_HISTORY; i++) {
-        _time.Add(0L);
+        _load.Add(new LoadSample());
     }
     for (int i = 0; i < INV_HISTORY; i++) {
         _item_counts.Add(new Dictionary<string, double>());
@@ -147,7 +149,6 @@ public int SafeMod(int val, int mod) {
 
 public int InvOffset(int delta)     { return SafeMod(_cycles[CYCLES_INV] + delta, INV_HISTORY); }
 public int LoadOffset(int delta)    { return SafeMod(_cycles[CYCLES_TOP] + delta, LOAD_HISTORY); }
-public int TimeOffset(int delta)    { return SafeMod(_cycles[CYCLES_TOP] + delta, TIME_HISTORY); }
 public int CargoOffset(int delta)   { return SafeMod(_cycles[CYCLES_CARGO] + delta, CARGO_HISTORY); }
 public int BatteryOffset(int delta) { return SafeMod(_cycles[CYCLES_BATTERY] + delta, BATTERY_HISTORY); }
 
@@ -161,7 +162,7 @@ public void Main(string argument, UpdateType updateSource) {
 
 	    _cycles[CYCLES_TOP]++;
 
-	    _time[TimeOffset(-1)] = Runtime.LastRunTimeMs;
+	    _load[LoadOffset(-1)].Load = Runtime.LastRunTimeMs;
 
             ClearPanels(PANELS_DEBUG);
 
@@ -196,18 +197,19 @@ public void Main(string argument, UpdateType updateSource) {
 	    UpdateCargoCharts();
 	    FlushChartBuffers();
 
-	    _load[LoadOffset(0)] = Runtime.CurrentInstructionCount;
-	    //_time[TimeOffset(0)] = (DateTime.Now - start_time).Ticks;
+	    _load[LoadOffset(0)].Load = Runtime.CurrentInstructionCount;
+	    //_load[LoadOffset(0)].Time = (DateTime.Now - start_time).Ticks;
 
-            // FIXME: across SAMPLES not HISTORY
-	    long load_avg = _load.Sum() / (long)LOAD_HISTORY;
-	    long time_avg = TimeAsUsec(_time.Sum()) / (long)TIME_HISTORY;
+            load_sample_total = load_sample_total - _load[LoadOffset(-LOAD_SAMPLES - 1)].Load + _load[LoadOffset(0)].Load;
+            time_sample_total = time_sample_total - _load[LoadOffset(-LOAD_SAMPLES - 2)].Time + _load[LoadOffset(-1)].Time;
+	    long load_avg = load_sample_total / (long)LOAD_SAMPLES;
+	    long time_avg = TimeAsUsec(time_sample_total) / (long)LOAD_SAMPLES;
 	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
 
             // Start at T-1 - exec time hasn't been updated yet.
             for (int i = 1; i < 16; i++) {
-                long load = _load[LoadOffset(-i)];
-                long time = TimeAsUsec(_time[TimeOffset(-i)]);
+                long load = _load[LoadOffset(-i)].Load;
+                long time = TimeAsUsec(_load[LoadOffset(-i)].Time);
                 Log($"  [T-{i,-2}] Load {load} in {time}us");
             }
             Log($"Charts: {_charts.Count}, DrawBuffers: {_chart_buffers.Count}");
@@ -561,12 +563,12 @@ public void FlushChartBuffers() {
 
 public void UpdateTimeChart() {
     if (_charts[CHART_TIME].IsViewed) {
-        double max = TimeAsUsec(_time.Max());
+        double max = TimeAsUsec(_load.Max(x => x.Time));
         _charts[CHART_TIME].StartDraw();
-        // Start at -1 because "now" hasn't been updated yet.
         for (int i = 0; i < TIME_HISTORY - 1; i++) {
             //Log($"Update T-{i,-2}");
-            _charts[CHART_TIME].DrawBar(i, TimeAsUsec(_time[TimeOffset(-i - 1)]), max);
+            // Start at -1 because "now" hasn't been updated yet.
+            _charts[CHART_TIME].DrawBar(i, TimeAsUsec(_load[LoadOffset(-i - 1)].Time), max);
         }
         _charts[CHART_TIME].EndDraw();
     }
