@@ -247,6 +247,7 @@ public void UpdateInventoryStats() {
     int num_invs = 0;
     //string item_name;
     double existing;
+    MyInventoryItem item;
     foreach (IMyTerminalBlock inventory_block in _inventory_blocks) {
         if (inventory_block == null) {
             //Log("Block is null.");
@@ -270,7 +271,9 @@ public void UpdateInventoryStats() {
             //Log("item in items");
             //item_name = null;
             existing = 0.0;
-            foreach (MyInventoryItem item in items) {
+            for (int j = 0, szj = items.Count; j < szj; j++) {
+            //foreach (MyInventoryItem item in items) {
+                item = items[j];
                 if (item == null) {
                     //Log("Found null item");
                     continue;
@@ -452,10 +455,14 @@ public void FindPanels() {
             buffer = new DrawBuffer(panel, (int)(52F * scale), 35);
             _chart_buffers.Add(id, buffer);
         } else {
+            if (panel.CustomData.GetHashCode() == buffer.ConfigHash) {
+                //Warning($"Chart panel skipping unchanged config parse on panel '{panel.CustomName}'");
+                continue;
+            }
             buffer.Clear();
             buffer.Save();
         }
-        // FIXME: only if config has changed (panel.CustomData.GetHashCode() will do)
+        buffer.ConfigHash = panel.CustomData.GetHashCode();
         if (!_ini.TryParse(panel.CustomData, out parse_result)) {
             Warning($"Chart panel parse error on panel '{panel.CustomName}' line {parse_result.LineNo}: {parse_result.Error}");
             found_ids.Remove(id); // Move along. Nothing to see. Pretend we never saw the panel.
@@ -657,6 +664,7 @@ public class DrawBuffer {
     public IMyTextPanel Panel;
     public int X, Y;
     public List<StringBuilder> Buffer;
+    public int ConfigHash;
     private List<string> template;
     string blank;
 
@@ -671,6 +679,7 @@ public class DrawBuffer {
             Buffer.Add(new StringBuilder(blank));
             template.Add(blank);
         }
+        ConfigHash = 0;
     }
 
     public void Save() {
