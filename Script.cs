@@ -65,8 +65,8 @@ List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
 
 
 class LoadSample {
-    long Load;
-    double Time;
+    public long Load;
+    public double Time;
 }
 
 class CargoSample {
@@ -77,8 +77,8 @@ class BatterySample {
     public float CurrentStoredPower, MaxStoredPower, CurrentInput, MaxInput, CurrentOutput, MaxOutput;
 }
 
-List<LoadSample> _load = new List<LoadSample>();
-List<Dictionary<string, double>> _item_counts = new List<Dictionary<string, double>>(INV_HISTORY);
+List<LoadSample> _load = new List<LoadSample>(LOAD_HISTORY);
+List<Dictionary<MyItemType, double>> _item_counts = new List<Dictionary<MyItemType, double>>(INV_HISTORY);
 List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
 List<BatterySample> _battery = new List<BatterySample>(BATTERY_HISTORY);
 
@@ -88,6 +88,7 @@ Dictionary<long, DrawBuffer> _chart_buffers = new Dictionary<long, DrawBuffer>()
 
 long load_sample_total = 0;
 double time_sample_total = 0.0;
+double time_total = 0.0;
 
 /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
 List<MyInventoryItem> items = new List<MyInventoryItem>();
@@ -107,7 +108,7 @@ public Program() {
         _load.Add(new LoadSample());
     }
     for (int i = 0; i < INV_HISTORY; i++) {
-        _item_counts.Add(new Dictionary<string, double>());
+        _item_counts.Add(new Dictionary<MyItemType, double>());
     }
     for (int i = 0; i < CARGO_HISTORY; i++) {
         _cargo.Add(new CargoSample());
@@ -155,14 +156,20 @@ public int BatteryOffset(int delta) { return SafeMod(_cycles[CYCLES_BATTERY] + d
 public void Main(string argument, UpdateType updateSource) {
     try {
         if ((updateSource & UpdateType.Update100) != 0) {
-	    DateTime start_time = DateTime.Now;
+	    //DateTime start_time = DateTime.Now;
             // FIXME: System.Diagnostics.Stopwatch
             // Runtime.LastRunTimeMs
             // Runtime.TimeSinceLastRun
 
 	    _cycles[CYCLES_TOP]++;
 
-	    _load[LoadOffset(-1)].Load = Runtime.LastRunTimeMs;
+	    _load[LoadOffset(-1)].Time = Runtime.LastRunTimeMs;
+            if (_cycles[CYCLES_TOP] > 1) {
+                time_total += Runtime.LastRunTimeMs;
+                if (_cycles[CYCLES_TOP] == 201) {
+                    Warning($"Total time after 200 cycles: {time_total}ms.");
+                }
+            }
 
             ClearPanels(PANELS_DEBUG);
 
@@ -238,6 +245,8 @@ public void UpdateInventoryStats() {
 
     _item_counts[current].Clear();
     int num_invs = 0;
+    //string item_name;
+    double existing;
     foreach (IMyTerminalBlock inventory_block in _inventory_blocks) {
         if (inventory_block == null) {
             //Log("Block is null.");
@@ -259,8 +268,8 @@ public void UpdateInventoryStats() {
                 continue;
             }
             //Log("item in items");
-            string item_name = null;
-            double existing = 0.0;
+            //item_name = null;
+            existing = 0.0;
             foreach (MyInventoryItem item in items) {
                 if (item == null) {
                     //Log("Found null item");
@@ -268,10 +277,11 @@ public void UpdateInventoryStats() {
                 }
                 //Log($"Found {item.Type.TypeId} {item.Type.SubtypeId} {item.Amount}");
                 //Log($"Found {item.Type.SubtypeId} {item.Amount}");
-                item_name = GetItemName(item.Type);
+                // FIXME: expand item name on display, not inside loop
+                //item_name = GetItemName(item.Type);
                 existing = 0.0;
-                _item_counts[current].TryGetValue(item_name, out existing);
-                _item_counts[current][item_name] = existing + (double)item.Amount;
+                _item_counts[current].TryGetValue(item.Type, out existing);
+                _item_counts[current][item.Type] = existing + (double)item.Amount;
             }
         }
     }
@@ -311,13 +321,15 @@ void UpdateInventoryText() {
     int last = InvOffset(-INV_SAMPLES), current = InvOffset(0);
     double old, value;
     int delta;
+    string item_name;
     _inv_text = "";
-    foreach (KeyValuePair<string, double> kvp in _item_counts[current].OrderBy(key => -key.Value)) {
+    foreach (KeyValuePair<MyItemType, double> kvp in _item_counts[current].OrderBy(key => -key.Value)) {
+        item_name = GetItemName(kvp.Key);
         value = kvp.Value;
         old = 0.0;
         _item_counts[last].TryGetValue(kvp.Key, out old);
         delta = (int)(value - old) / INV_SAMPLES;
-        _inv_text += $"{(int)value,8} {kvp.Key}{delta,0:' ['+#']';' ['-#']';''}\n";
+        _inv_text += $"{(int)value,8} {item_name}{delta,0:' ['+#']';' ['-#']';''}\n";
     }
 }
 
@@ -532,9 +544,9 @@ public void FlushToAllPanels() {
 }
 
 public void FlushToPanels(int kind) {
-    foreach (IMyTextPanel panel in _panels[kind]) {
-        if (panel != null) {
-            panel.WriteText(_panel_text[kind], false);
+    for (int i = 0, sz = _panels[kind].Count; i < sz; i++) {
+        if (_panels[kind][i] != null) {
+            _panels[kind][i].WriteText(_panel_text[kind], false);
         }
     }
 }
@@ -565,7 +577,7 @@ public void UpdateTimeChart() {
     if (_charts[CHART_TIME].IsViewed) {
         double max = TimeAsUsec(_load.Max(x => x.Time));
         _charts[CHART_TIME].StartDraw();
-        for (int i = 0; i < TIME_HISTORY - 1; i++) {
+        for (int i = 0; i < LOAD_HISTORY - 1; i++) {
             //Log($"Update T-{i,-2}");
             // Start at -1 because "now" hasn't been updated yet.
             _charts[CHART_TIME].DrawBar(i, TimeAsUsec(_load[LoadOffset(-i - 1)].Time), max);
@@ -576,25 +588,28 @@ public void UpdateTimeChart() {
 
 public void UpdatePowerCharts() {
     if (_charts[CHART_POWER_STORED].IsViewed || _charts[CHART_POWER_IN].IsViewed || _charts[CHART_POWER_OUT].IsViewed) {
-	double stored_max = (double)_battery[BatteryOffset(0)].MaxStoredPower;
-	double in_max = 0.0; //(double)_battery[BatteryOffset(0)].MaxInput;
-	double out_max = 0.0; //(double)_battery[BatteryOffset(0)].MaxOutput;
+        int current = BatteryOffset(0), then;
+	double stored_max = (double)_battery[current].MaxStoredPower;
+	double in_max = 0.0; //(double)_battery[current].MaxInput;
+	double out_max = 0.0; //(double)_battery[current].MaxOutput;
 	for (int i = 0; i < BATTERY_HISTORY; i++) {
-            if ((double)_battery[BatteryOffset(-i)].MaxStoredPower > stored_max)
-                stored_max = (double)_battery[BatteryOffset(-i)].MaxStoredPower;
-            if ((double)_battery[BatteryOffset(-i)].CurrentInput > in_max)
-                in_max = (double)_battery[BatteryOffset(-i)].CurrentInput;
-            if ((double)_battery[BatteryOffset(-i)].CurrentOutput > out_max)
-                out_max = (double)_battery[BatteryOffset(-i)].CurrentOutput;
+            then = BatteryOffset(-i);
+            if ((double)_battery[then].MaxStoredPower > stored_max)
+                stored_max = (double)_battery[then].MaxStoredPower;
+            if ((double)_battery[then].CurrentInput > in_max)
+                in_max = (double)_battery[then].CurrentInput;
+            if ((double)_battery[then].CurrentOutput > out_max)
+                out_max = (double)_battery[then].CurrentOutput;
 	}
         _charts[CHART_POWER_STORED].StartDraw();
         _charts[CHART_POWER_IN].StartDraw();
         _charts[CHART_POWER_OUT].StartDraw();
 	for (int i = 0; i < BATTERY_HISTORY; i++) {
 	    //Log($"Update T-{i,-2}");
-	    _charts[CHART_POWER_STORED].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentStoredPower, (double)stored_max);
-	    _charts[CHART_POWER_IN].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentInput, (double)in_max);
-	    _charts[CHART_POWER_OUT].DrawBar(i, (double)_battery[BatteryOffset(-i)].CurrentOutput, (double)out_max);
+            then = BatteryOffset(-i);
+	    _charts[CHART_POWER_STORED].DrawBar(i, (double)_battery[then].CurrentStoredPower, (double)stored_max);
+	    _charts[CHART_POWER_IN].DrawBar(i, (double)_battery[then].CurrentInput, (double)in_max);
+	    _charts[CHART_POWER_OUT].DrawBar(i, (double)_battery[then].CurrentOutput, (double)out_max);
 	}
         _charts[CHART_POWER_STORED].EndDraw();
         _charts[CHART_POWER_IN].EndDraw();
@@ -604,19 +619,21 @@ public void UpdatePowerCharts() {
 
 public void UpdateCargoCharts() {
     if (_charts[CHART_CARGO_USED_MASS].IsViewed || _charts[CHART_CARGO_USED_VOLUME].IsViewed || _charts[CHART_CARGO_FREE_VOLUME].IsViewed) {
-	double max_volume = (double)_cargo[CargoOffset(0)].MaxVolume;
+        int current = CargoOffset(0), then;
+	double max_volume = (double)_cargo[current].MaxVolume;
 	double used_mass_max = 0.0;
 	double used_volume_max = 0.0;
 	double free_volume_max = 0.0;
         double val;
 	for (int i = 0; i < CARGO_HISTORY; i++) {
-            val = (double)_cargo[CargoOffset(-i)].UsedMass;
+            then = CargoOffset(-i);
+            val = (double)_cargo[then].UsedMass;
             if (val > used_mass_max)
                 used_mass_max = val;
-            val = (double)_cargo[CargoOffset(-i)].UsedVolume;
+            val = (double)_cargo[then].UsedVolume;
             if (val > used_volume_max)
                 used_volume_max = val;
-            val = (double)_cargo[CargoOffset(-i)].MaxVolume - (double)_cargo[CargoOffset(-i)].UsedVolume;
+            val = (double)_cargo[then].MaxVolume - (double)_cargo[then].UsedVolume;
             if (val > free_volume_max)
                 free_volume_max = val;
 	}
@@ -625,9 +642,10 @@ public void UpdateCargoCharts() {
         _charts[CHART_CARGO_FREE_VOLUME].StartDraw();
 	for (int i = 0; i < CARGO_HISTORY; i++) {
 	    //Log($"Update T-{i,-2}");
-	    _charts[CHART_CARGO_USED_MASS].DrawBar(i, (double)_cargo[CargoOffset(-i)].UsedMass / 1000000.0, (double)used_mass_max / 1000000.0);
-	    _charts[CHART_CARGO_USED_VOLUME].DrawBar(i, (double)_cargo[CargoOffset(-i)].UsedVolume, (double)used_volume_max);
-	    _charts[CHART_CARGO_FREE_VOLUME].DrawBar(i, (double)_cargo[CargoOffset(-i)].MaxVolume - (double)_cargo[CargoOffset(-i)].UsedVolume, (double)free_volume_max);
+            then = CargoOffset(-i);
+	    _charts[CHART_CARGO_USED_MASS].DrawBar(i, (double)_cargo[then].UsedMass / 1000000.0, (double)used_mass_max / 1000000.0);
+	    _charts[CHART_CARGO_USED_VOLUME].DrawBar(i, (double)_cargo[then].UsedVolume, (double)used_volume_max);
+	    _charts[CHART_CARGO_FREE_VOLUME].DrawBar(i, (double)_cargo[then].MaxVolume - (double)_cargo[then].UsedVolume, (double)free_volume_max);
 	}
         _charts[CHART_CARGO_USED_MASS].EndDraw();
         _charts[CHART_CARGO_USED_VOLUME].EndDraw();
@@ -693,12 +711,12 @@ public class DrawBuffer {
 }
 
 public class ViewPort {
-    public DrawBuffer buffer;
+    public DrawBuffer Buffer;
     public int offsetX, offsetY;
     public int X, Y;
 
     public ViewPort(DrawBuffer buffer, int offset_x, int offset_y, int x, int y) {
-        this.buffer = buffer;
+        Buffer = buffer;
         offsetX = offset_x;
         offsetY = offset_y;
         X = x;
@@ -706,12 +724,12 @@ public class ViewPort {
     }
 
     public void Save() {
-        buffer.Save();
+        Buffer.Save();
     }
 
     public void Write(int x, int y, string s) {
         // Yeah, no bounds checking. Sue me.
-        buffer.Write(offsetX + x, offsetY + y, s);
+        Buffer.Write(offsetX + x, offsetY + y, s);
     }
 }
 
@@ -729,8 +747,8 @@ public class ChartOptions {
 }
 
 public class ChartDisplay {
-    public ViewPort viewport;
-    public ChartOptions options;
+    public ViewPort Viewport;
+    public ChartOptions Options;
 
     public int? CurOffset = 0, AvgOffset = 0, MaxOffset = 0, ScaleOffset = 0;
     public double? SampleCur;
@@ -738,33 +756,12 @@ public class ChartDisplay {
     public int NumSamples;
 
     public ChartDisplay(ViewPort viewport, ChartOptions options) {
-        this.viewport = viewport;
-        this.options = options;
+        Viewport = viewport;
+        Options = options;
     }
 }
 
 public class Chart {
-    /* Unicode Blocks
-    U+2581	▁	Lower one eighth block
-    U+2582	▂	Lower one quarter block
-    U+2583	▃	Lower three eighths block
-    U+2584	▄	Lower half block
-    U+2585	▅	Lower five eighths block
-    U+2586	▆	Lower three quarters block
-    U+2587	▇	Lower seven eighths block
-    U+2588	█	Full block
-
-    U+2588	█	Full block
-    U+2589	▉	Left seven eighths block
-    U+258A	▊	Left three quarters block
-    U+258B	▋	Left five eighths block
-    U+258C	▌	Left half block
-    U+258D	▍	Left three eighths block
-    U+258E	▎	Left one quarter block
-    U+258F	▏	Left one eighth block
-
-    U+2591	░	Light shade
-     */
     static List<string> _y_blocks = new List<string>(8) {
       " ", "\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588",
     };
@@ -862,13 +859,13 @@ public class Chart {
     }
 
     public void RemoveDisplaysForBuffer(DrawBuffer buffer) {
-        displays.RemoveAll(display => display.viewport.buffer == buffer);
+        displays.RemoveAll(display => display.Viewport.Buffer == buffer);
     }
 
     private void DrawBarToDisplay(int d, int t, double val, double max) {
         ChartDisplay display = displays[d];
-        ViewPort viewport = display.viewport;
-        ChartOptions options = display.options;
+        ViewPort viewport = display.Viewport;
+        ChartOptions options = display.Options;
 	int x, y, size, dx, dy;
 	List<string> blocks;
 
@@ -911,10 +908,10 @@ public class Chart {
         // FIXME: unroll x/y versions and i < repeat and i == repeat cases.
 	for (int i = 0; i < size; i++) {
 	    if (i < repeat) {
-                viewport.buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[8][0];
+                viewport.Buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[8][0];
 		//viewport.Write(x, y, blocks[8]); // TODO: unroll buffer write?
 	    } else if (i == repeat) {
-                viewport.buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[fraction][0];
+                viewport.Buffer.Buffer[viewport.offsetY + y][viewport.offsetX + x] = blocks[fraction][0];
 		//viewport.Write(x, y, blocks[fraction]); // TODO: unroll buffer write?
 		break;
 	    }
@@ -940,14 +937,14 @@ public class Chart {
     }
 
     public void EndDraw() {
+        float avg;
         ChartDisplay display;
         ViewPort viewport;
         ChartOptions options;
-        float avg;
         for (int d = 0, sz = displays.Count; d < sz; d++) {
             display = displays[d];
-            viewport = display.viewport;
-            options = display.options;
+            viewport = display.Viewport;
+            options = display.Options;
             avg = (float)display.SampleTotal / (float)display.NumSamples;
             if (options.ShowCur && display.CurOffset.HasValue && display.SampleCur.HasValue) {
                 viewport.Write((int)display.CurOffset, viewport.Y - 1, $"{display.SampleCur,5:G4}");
