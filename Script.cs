@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "1.4.5";
+string _script_version = "1.4.6";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -444,6 +444,7 @@ public void FindPanels() {
     MyIniParseResult parse_result;
     List<string> sections = new List<string>();
     int chart_kind, width, height, x, y;
+    bool horizontal, show_title, show_cur, show_avg, show_max, show_scale;
     string name;
     for (int i = 0, sz = _panels[PANELS_CHART].Count; i < sz; i++) {
         IMyTextPanel panel = _panels[PANELS_CHART][i];
@@ -451,6 +452,8 @@ public void FindPanels() {
         found_ids.Add(id);
         if (!_chart_buffers.TryGetValue(id, out buffer)) {
             // 42x28 seems about right for 1x1 panel at 0.6
+            // 52x35 for 1x1 panel at 0.5 with 0.5% padding.
+            // 1x1 panel is 512 wide, 2x1 presumeably 1024 wide.
             float scale = panel.SurfaceSize.X / 512F;
             buffer = new DrawBuffer(panel, (int)(52F * scale), 35);
             _chart_buffers.Add(id, buffer);
@@ -481,11 +484,17 @@ public void FindPanels() {
             x = _ini.Get(section, "x").ToInt32(0);
             y = _ini.Get(section, "y").ToInt32(0);
             // horizontal, etc ChartOptions settings.
+            horizontal = _ini.Get(section, "horizontal").ToBoolean(true);
+            show_title = _ini.Get(section, "show_title").ToBoolean(true);
+            show_cur = _ini.Get(section, "show_cut").ToBoolean(true);
+            show_avg = _ini.Get(section, "show_avg").ToBoolean(true);
+            show_max = _ini.Get(section, "show_max").ToBoolean(false);
+            show_scale = _ini.Get(section, "show_scale").ToBoolean(true);
 
             // Hmm, removing it here means we can't have multiples of same chart on same panel
             // TODO: maybe keep track of those chart_kind we've removed already in the sections loop?
             _charts[chart_kind].RemoveDisplaysForBuffer(buffer);
-    	    _charts[chart_kind].AddBuffer(buffer, x, y, width, height);
+    	    _charts[chart_kind].AddBuffer(buffer, x, y, width, height, new ChartOptions(horizontal, show_title, show_cur, show_avg, show_max, show_scale));
         }
     }
     // Prune old ids in _chart_buffers
