@@ -559,6 +559,13 @@ public void FlushToAllPanels() {
     }
 }
 
+/*
+IMyTextSurface textSurface = block.GetSurface(i);
+frame = textSurface.DrawFrame();
+sprite = MySprite.CreateText(string text, string fontId, Color color, float fontSize, TextAlignment textAlignment);
+sprite.Position = new Vector2(textSurface.TextPadding, textSurface.TextPadding);
+frame.Add(sprite);
+ */
 public void FlushToPanels(int kind) {
     for (int i = 0, sz = _panels[kind].Count; i < sz; i++) {
         if (_panels[kind][i] != null) {

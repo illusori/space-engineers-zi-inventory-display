@@ -1,6 +1,8 @@
 # space-engineers-zi-inventory-display
 Space Engineers - Zephyr Industries Inventory Display
 
+![Overview](everything.jpg)
+
 ## Warning:
 
 Zephyr Industries Inventory Display is functional but not particularly user-friendly at this stage. There isn't a great deal of documentation without looking at the source code for the script. If you're interested in learning how to write your own scripts, it's probably got some intermediate-level ideas in there for you to be inspired by.
@@ -37,15 +39,19 @@ Some examples are probably a bit easier to understand.
 
 ### Basic Power Stored Chart
 
+![Simple Chart Example](simple_chart.jpg)
+
 Set the Custom Data to:
 
 ```
-[power_stored]
+[time]
 ```
 
-This creates one chart tracking the `power_stored` series with the default options: fill the entire panel, have the bars aligned vertically and time horizontal.
+This creates one chart tracking the `time` series for script execution time, with the default options: fill the entire panel, have the bars aligned vertically and time horizontal.
 
 ### Triple Power Chart
+
+![Triple Chart Example](triple_chart.jpg)
 
 ```
 [power_stored]
@@ -61,6 +67,33 @@ height=11
 ```
 
 This places three charts onto one display folowing the `power_stored`, `power_in` and `power_out` series. It also overrides the default layout so that they tile one above the other taking up about a third of the height of the panel each and the full width.
+
+### Mixing It All Together
+
+![A Complicated Abomination](mixing_it_all_together.jpg)
+
+```
+[power_stored]
+height=13
+
+[cargo_free_volume]
+y=13
+height=11
+horizontal=false
+show_cur=false
+show_max=true
+
+[power_out]
+y=24
+height=11
+horizontal=false
+```
+
+Creates three charts on one display:
+
+* The top chart is stored power, similar to the triple chart.
+* The middle chart is free cargo space, with bars going horizontally. The current value is hidden from the legend, and the max value is shown.
+* The bottom chart is tracking power leaving the batteries and other than being horizontal is a standard chart.
 
 ### List of chart series
 
