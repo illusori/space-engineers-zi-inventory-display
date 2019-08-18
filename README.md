@@ -37,7 +37,7 @@ The Custom Data follows an INI-file format with section names indicating what ch
 
 Some examples are probably a bit easier to understand.
 
-### Basic Power Stored Chart
+### Basic Execution Time Chart
 
 ![Simple Chart Example](simple_chart.jpg)
 
