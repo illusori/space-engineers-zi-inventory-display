@@ -25,11 +25,14 @@ Life has never been so good, that's what Living in the Future(tm) means!
   * `@DebugDisplay` displays info useful for script development, including performance.
   * `@WarningDisplay` displays any issues the script encountered.
   * `@ChartDisplay` will configure the display for charts. Configuration is a bit more complicated, see the *Chart Displays* section for more details.
+* Make sure you have [Zephyr Industries Bar Charts set up too](https://github.com/illusori/space-engineers-zi-bar-charts#instructions) if you want bar charts.
 
 ## Notes:
 * Yeah, Isy's Inventory Manager does most of this and far more. I suggest you go use that unless one of the features in this script really appeals to you. I wrote this as a learning exercise for myself (my first C# project) and to suit my personal needs rather than to be a replacement for a script that has been actively developed and supported for years.
 
 ## Chart Displays:
+
+NOTE: Chart displays are handled by [Zephyr Industries Bar Charts set up too](https://github.com/illusori/space-engineers-zi-bar-charts#instructions), so check out the instructions there if you want more details.
 
 To configure a chart display you need tag the name with `@ChartDisplay` and to edit the Custom Data for the display.
 
