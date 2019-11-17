@@ -32,7 +32,7 @@ Life has never been so good, that's what Living in the Future(tm) means!
 
 ## Chart Displays:
 
-NOTE: Chart displays are handled by [Zephyr Industries Bar Charts set up too](https://github.com/illusori/space-engineers-zi-bar-charts#instructions), so check out the instructions there if you want more details.
+NOTE: Chart displays are handled by [Zephyr Industries Bar Charts](https://github.com/illusori/space-engineers-zi-bar-charts#instructions), so check out the instructions there if you want more details.
 
 To configure a chart display you need tag the name with `@ChartDisplay` and to edit the Custom Data for the display.
 
