@@ -8,17 +8,20 @@ const int INV_HISTORY     = 100;
 const int LOAD_HISTORY    = 100;
 const int CARGO_HISTORY   = 100;
 const int BATTERY_HISTORY = 100;
+const int GAS_HISTORY     = 100;
 
 const int INV_SAMPLES     = 10;
 const int LOAD_SAMPLES    = 10;
 const int CARGO_SAMPLES   = 10;
 const int BATTERY_SAMPLES = 10;
+const int GAS_SAMPLES     = 10;
 
 const int CYCLES_TOP     = 0;
 const int CYCLES_INV     = 1;
 const int CYCLES_CARGO   = 2;
 const int CYCLES_BATTERY = 3;
-const int SIZE_CYCLES    = 4;
+const int CYCLES_GAS     = 4;
+const int SIZE_CYCLES    = 5;
 
 const int PANELS_DEBUG = 0;
 const int PANELS_WARN  = 1;
@@ -33,7 +36,11 @@ const int CHART_POWER_OUT         = 3;
 const int CHART_CARGO_USED_MASS   = 4;
 const int CHART_CARGO_USED_VOLUME = 5;
 const int CHART_CARGO_FREE_VOLUME = 6;
-const int SIZE_CHARTS             = 7;
+const int CHART_O2_USED_VOLUME    = 7;
+const int CHART_O2_FREE_VOLUME    = 8;
+const int CHART_H2_USED_VOLUME    = 9;
+const int CHART_H2_FREE_VOLUME    = 10;
+const int SIZE_CHARTS             = 11;
 
 Dictionary<string, int> _chart_names = new Dictionary<string, int>() {
     { "time",              CHART_TIME },
@@ -42,7 +49,11 @@ Dictionary<string, int> _chart_names = new Dictionary<string, int>() {
     { "power_out",         CHART_POWER_OUT },
     { "cargo_used_mass",   CHART_CARGO_USED_MASS },
     { "cargo_used_volume", CHART_CARGO_USED_VOLUME },
-    { "cargo_free_volume", CHART_CARGO_FREE_VOLUME }
+    { "cargo_free_volume", CHART_CARGO_FREE_VOLUME },
+    { "o2_used_volume",    CHART_O2_USED_VOLUME },
+    { "o2_free_volume",    CHART_O2_FREE_VOLUME },
+    { "h2_used_volume",    CHART_H2_USED_VOLUME },
+    { "h2_free_volume",    CHART_H2_FREE_VOLUME }
 };
 
 MyIni _ini = new MyIni();
@@ -62,6 +73,7 @@ string _inv_text = "", _cargo_text = ""; // FIXME: StringBuilder?
 List<IMyTerminalBlock> _inventory_blocks = new List<IMyTerminalBlock>();
 List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
+List<IMyGasTank> _gas_tank_blocks = new List<IMyGasTank>();
 
 
 class LoadSample {
@@ -77,10 +89,15 @@ class BatterySample {
     public float CurrentStoredPower, MaxStoredPower, CurrentInput, MaxInput, CurrentOutput, MaxOutput;
 }
 
+class GasSample {
+    public double CurrentStoredO2, MaxStoredO2, CurrentStoredH2, MaxStoredH2;
+}
+
 List<LoadSample> _load = new List<LoadSample>(LOAD_HISTORY);
 List<Dictionary<MyItemType, double>> _item_counts = new List<Dictionary<MyItemType, double>>(INV_HISTORY);
 List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
 List<BatterySample> _battery = new List<BatterySample>(BATTERY_HISTORY);
+List<GasSample> _gas = new List<GasSample>(GAS_HISTORY);
 
 
 // panel.EntityId => DrawBuffer
@@ -116,7 +133,11 @@ public Program() {
     for (int i = 0; i < BATTERY_HISTORY; i++) {
         _battery.Add(new BatterySample());
     }
+    for (int i = 0; i < GAS_HISTORY; i++) {
+        _gas.Add(new GasSample());
+    }
 
+    // Same order as the defines.
     _charts.Add(new Chart("Exec Time", "us"));
     _charts.Add(new Chart("Stored Power", "MWh"));
     _charts.Add(new Chart("Power In", "MW"));
@@ -124,11 +145,16 @@ public Program() {
     _charts.Add(new Chart("Cargo Mass", "kt"));
     _charts.Add(new Chart("Cargo Vol", "m3"));
     _charts.Add(new Chart("Cargo Free", "m3"));
+    _charts.Add(new Chart("O2 Vol", "m3"));
+    _charts.Add(new Chart("O2 Free", "m3"));
+    _charts.Add(new Chart("H2 Vol", "m3"));
+    _charts.Add(new Chart("H2 Free", "m3"));
 
     FindPanels();
     FindInventoryBlocks();
     FindCargoBlocks();
     FindBatteryBlocks();
+    FindGasBlocks();
 
     if (!Me.CustomName.Contains(_script_name)) {
         // Update our block to include our script name
@@ -152,6 +178,7 @@ public int InvOffset(int delta)     { return SafeMod(_cycles[CYCLES_INV] + delta
 public int LoadOffset(int delta)    { return SafeMod(_cycles[CYCLES_TOP] + delta, LOAD_HISTORY); }
 public int CargoOffset(int delta)   { return SafeMod(_cycles[CYCLES_CARGO] + delta, CARGO_HISTORY); }
 public int BatteryOffset(int delta) { return SafeMod(_cycles[CYCLES_BATTERY] + delta, BATTERY_HISTORY); }
+public int GasOffset(int delta) { return SafeMod(_cycles[CYCLES_GAS] + delta, GAS_HISTORY); }
 
 public void Main(string argument, UpdateType updateSource) {
     try {
@@ -187,10 +214,14 @@ public void Main(string argument, UpdateType updateSource) {
             if ((_cycles[CYCLES_TOP] % 30) == 3) {
                 FindBatteryBlocks();
             }
+            if ((_cycles[CYCLES_TOP] % 30) == 4) {
+                FindGasBlocks();
+            }
 
             UpdateInventoryStats();
             UpdateCargoStats();
             UpdateBatteryStats();
+            UpdateGasStats();
 
             UpdateInventoryText();
             UpdateCargoText();
@@ -202,6 +233,7 @@ public void Main(string argument, UpdateType updateSource) {
 	    UpdateTimeChart();
 	    UpdatePowerCharts();
 	    UpdateCargoCharts();
+	    UpdateGasCharts();
 	    FlushChartBuffers();
 
 	    _load[LoadOffset(0)].Load = Runtime.CurrentInstructionCount;
@@ -395,6 +427,37 @@ public void UpdateBatteryStats() {
     Log($"  {num_batteries} batteries with {num_recharge} recharging and {num_discharge} discharging.");
 }
 
+public void UpdateGasStats() {
+    _cycles[CYCLES_GAS]++;
+
+    int last = GasOffset(-GAS_SAMPLES), current = GasOffset(0);
+    GasSample sample = _gas[current];
+
+    sample.CurrentStoredO2 = 0.0F;
+    sample.MaxStoredO2     = 0.0F;
+    sample.CurrentStoredH2 = 0.0F;
+    sample.MaxStoredH2     = 0.0F;
+
+    // TODO: stockpile counts?
+    int num_o2_tanks = 0, num_h2_tanks = 0;
+    foreach (IMyGasTank gas_tank_block in _gas_tank_blocks) {
+        if (gas_tank_block == null) {
+            //Log("Block is null.");
+            continue;
+        }
+        // Such a hack :/
+        if (gas_tank_block.DefinitionDisplayNameText == "Oxygen Tank") {
+            num_o2_tanks++;
+            sample.CurrentStoredO2 += (float)(gas_tank_block.Capacity * gas_tank_block.FilledRatio);
+            sample.MaxStoredO2 += (float)gas_tank_block.Capacity;
+        } else if (gas_tank_block.DefinitionDisplayNameText == "Hydrogen Tank") {
+            num_h2_tanks++;
+            sample.CurrentStoredH2 += (float)(gas_tank_block.Capacity * gas_tank_block.FilledRatio);
+            sample.MaxStoredH2 += (float)gas_tank_block.Capacity;
+        }
+    }
+    Log($"  {num_o2_tanks} O2 tanks and {num_h2_tanks} H2 tanks.");
+}
 
 public string GetItemName(MyItemType item_type) {
     if (item_type.TypeId == "MyObjectBuilder_Ingot") {
@@ -526,6 +589,12 @@ public void FindBatteryBlocks() {
     //Log($"Found {_battery_blocks.Count} battery blocks.");
 }
 
+public void FindGasBlocks() {
+    _gas_tank_blocks.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyGasTank>(_gas_tank_blocks);
+    //Log($"Found {_gas_tank_blocks.Count} gas tank blocks.");
+}
+
 /*
 public void FindPowerProducerBlocks() {
     _power_blocks.Clear();
@@ -551,6 +620,10 @@ public void ClearPanels(int kind) {
 // StringBuilder.ToString()
 public void WritePanels(int kind, string s) {
     _panel_text[kind] += s;
+}
+
+public void PrependPanels(int kind, string s) {
+    _panel_text[kind] = s + _panel_text[kind];
 }
 
 public void FlushToAllPanels() {
@@ -580,8 +653,10 @@ public void Log(string s) {
 }
 
 public void Warning(string s) {
-    WritePanels(PANELS_WARN, $"[{DateTime.Now,11:HH:mm:ss.ff}] {s}\n");
-    FlushToPanels(PANELS_WARN); // Never clear buffer and and always immediately flush.
+    // Never clear buffer and and always immediately flush.
+    // Prepend because long text will have the bottom hidden.
+    PrependPanels(PANELS_WARN, $"[{DateTime.Now,11:HH:mm:ss.ff}] {s}\n");
+    FlushToPanels(PANELS_WARN);
 }
 
 public void ResetChartBuffers() {
@@ -673,6 +748,49 @@ public void UpdateCargoCharts() {
         _charts[CHART_CARGO_USED_MASS].EndDraw();
         _charts[CHART_CARGO_USED_VOLUME].EndDraw();
         _charts[CHART_CARGO_FREE_VOLUME].EndDraw();
+    }
+}
+
+public void UpdateGasCharts() {
+    if (_charts[CHART_O2_USED_VOLUME].IsViewed || _charts[CHART_O2_FREE_VOLUME].IsViewed || _charts[CHART_H2_USED_VOLUME].IsViewed || _charts[CHART_H2_FREE_VOLUME].IsViewed) {
+        int current = GasOffset(0), then;
+	//double max_volume = (double)_cargo[current].MaxVolume;
+	double o2_used_volume_max = 0.0;
+	double o2_free_volume_max = 0.0;
+	double h2_used_volume_max = 0.0;
+	double h2_free_volume_max = 0.0;
+        double val;
+	for (int i = 0; i < GAS_HISTORY; i++) {
+            then = GasOffset(-i);
+            val = _gas[then].CurrentStoredO2;
+            if (val > o2_used_volume_max)
+                o2_used_volume_max = val;
+            val = _gas[then].MaxStoredO2 - _gas[then].CurrentStoredO2;
+            if (val > o2_free_volume_max)
+                o2_free_volume_max = val;
+            val = _gas[then].CurrentStoredH2;
+            if (val > h2_used_volume_max)
+                h2_used_volume_max = val;
+            val = _gas[then].MaxStoredH2 - _gas[then].CurrentStoredH2;
+            if (val > h2_free_volume_max)
+                h2_free_volume_max = val;
+	}
+        _charts[CHART_O2_USED_VOLUME].StartDraw();
+        _charts[CHART_O2_FREE_VOLUME].StartDraw();
+        _charts[CHART_H2_USED_VOLUME].StartDraw();
+        _charts[CHART_H2_FREE_VOLUME].StartDraw();
+	for (int i = 0; i < GAS_HISTORY; i++) {
+	    //Log($"Update T-{i,-2}");
+            then = GasOffset(-i);
+	    _charts[CHART_O2_USED_VOLUME].DrawBar(i, _gas[then].CurrentStoredO2, o2_used_volume_max);
+	    _charts[CHART_O2_FREE_VOLUME].DrawBar(i, _gas[then].MaxStoredO2 - _gas[then].CurrentStoredO2, o2_free_volume_max);
+	    _charts[CHART_H2_USED_VOLUME].DrawBar(i, _gas[then].CurrentStoredH2, h2_used_volume_max);
+	    _charts[CHART_H2_FREE_VOLUME].DrawBar(i, _gas[then].MaxStoredH2 - _gas[then].CurrentStoredH2, h2_free_volume_max);
+	}
+        _charts[CHART_O2_USED_VOLUME].EndDraw();
+        _charts[CHART_O2_FREE_VOLUME].EndDraw();
+        _charts[CHART_H2_USED_VOLUME].EndDraw();
+        _charts[CHART_H2_FREE_VOLUME].EndDraw();
     }
 }
 
