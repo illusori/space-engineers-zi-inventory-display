@@ -44,46 +44,46 @@ Some examples are probably a bit easier to understand.
 Set the Custom Data to:
 
 ```
-[time]
+[Inv Exec Time]
 ```
 
-This creates one chart tracking the `time` series for script execution time, with the default options: fill the entire panel, have the bars aligned vertically and time horizontal.
+This creates one chart tracking the `Inv Exec Time` series for script execution time, with the default options: fill the entire panel, have the bars aligned vertically and time horizontal.
 
 ### Triple Power Chart
 
 ![Triple Chart Example](triple_chart.jpg)
 
 ```
-[power_stored]
+[Stored Power]
 height=13
 
-[power_in]
+[Power In]
 y=13
 height=11
 
-[power_out]
+[Power Out]
 y=24
 height=11
 ```
 
-This places three charts onto one display folowing the `power_stored`, `power_in` and `power_out` series. It also overrides the default layout so that they tile one above the other taking up about a third of the height of the panel each and the full width.
+This places three charts onto one display folowing the `Stored Power`, `Power In` and `Power Out` series. It also overrides the default layout so that they tile one above the other taking up about a third of the height of the panel each and the full width.
 
 ### Mixing It All Together
 
 ![A Complicated Abomination](mixing_it_all_together.jpg)
 
 ```
-[power_stored]
+[Stored Power]
 height=13
 
-[cargo_free_volume]
+[Cargo Free]
 y=13
 height=11
 horizontal=false
 show_cur=false
 show_max=true
 
-[power_out]
+[Power Out]
 y=24
 height=11
 horizontal=false
@@ -99,15 +99,22 @@ Creates three charts on one display:
 
 Series name | Description
 --- | ---
-power_stored | How much power is stored in your batteries.
-power_in | How much power is entering your batteries.
-power_out | How much power is leaving your batteries.
-cargo_used_mass | How much mass (tonnes) of cargo is within all cargo containers.
-cargo_used_volume | How much volume (m3) is used within all cargo containers.
-cargo_free_volume | How much volume (m3) is free within all cargo containers.
-time | (debug) Microsecond timings of how long the script ran for on each invocation.
+Stored Power | How much power is stored in your batteries.
+Power In | How much power is entering your batteries.
+Power Out | How much power is leaving your batteries.
+Cargo Mass | How much mass (tonnes) of cargo is within all cargo containers.
+Cargo Vol | How much volume (m3) is used within all cargo containers.
+Cargo Free | How much volume (m3) is free within all cargo containers.
+O2 Vol | How much volume (m3) is used within all oxygen tanks.
+O2 Free | How much volume (m3) is free within all oxygen tanks.
+H2 Vol | How much volume (m3) is used within all hydrogen tanks.
+H2 Free | How much volume (m3) is free within all hydrogen tanks.
+Inv Exec Time | (debug) Microsecond timings of how long the script ran for on each invocation.
+Inv Instr Load | (debug) Instruction count complexity load for each invocation of the script.
 
 ### List of chart options
+
+Zephyr Industries Inventory Display makes use of Zephyr Industries Bar Charts, the documentation there on [supported options](https://github.com/illusori/space-engineers-zi-bar-charts#list-of-chart-options) is likely to be more complete and kept more up-to-date.
 
 Option | Default | Description
 :---: | :---: | :---
