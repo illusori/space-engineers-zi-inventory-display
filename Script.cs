@@ -455,6 +455,12 @@ public string GetItemName(MyItemType item_type) {
     if (item_type.TypeId == "MyObjectBuilder_AmmoMagazine") {
         return item_type.SubtypeId;
     }
+    if (item_type.TypeId == "MyObjectBuilder_ConsumableItem") {
+        return item_type.SubtypeId;
+    }
+    if (item_type.TypeId == "MyObjectBuilder_PhysicalObject") {
+        return item_type.SubtypeId;
+    }
     return $"{item_type.TypeId} {item_type.SubtypeId}";
 }
 
