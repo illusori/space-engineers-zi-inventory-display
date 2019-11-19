@@ -78,7 +78,7 @@ List<IMyGasTank> _gas_tank_blocks = new List<IMyGasTank>();
 List<IMyProductionBlock> _prod_blocks = new List<IMyProductionBlock>();
 
 class LoadSample {
-    public long Load;
+    public double Load;
     public double Time;
 }
 
@@ -111,7 +111,7 @@ List<GasSample> _gas = new List<GasSample>(GAS_HISTORY);
 List<ProdSample> _prod = new List<ProdSample>(PROD_HISTORY);
 
 
-long load_sample_total = 0;
+double load_sample_total = 0.0;
 double time_sample_total = 0.0;
 double time_total = 0.0;
 
@@ -245,20 +245,20 @@ public void Main(string argument, UpdateType updateSource) {
 	    UpdateGasCharts();
 	    UpdateProdCharts();
 
-	    _load[LoadOffset(0)].Load = Runtime.CurrentInstructionCount;
+	    _load[LoadOffset(0)].Load = (double)Runtime.CurrentInstructionCount * 100.0 / (double)Runtime.MaxInstructionCount;
 	    //_load[LoadOffset(0)].Time = (DateTime.Now - start_time).Ticks;
 
             load_sample_total = load_sample_total - _load[LoadOffset(-LOAD_SAMPLES - 1)].Load + _load[LoadOffset(0)].Load;
             time_sample_total = time_sample_total - _load[LoadOffset(-LOAD_SAMPLES - 2)].Time + _load[LoadOffset(-1)].Time;
-	    long load_avg = load_sample_total / (long)LOAD_SAMPLES;
+	    long load_avg = (long)(load_sample_total / (double)LOAD_SAMPLES);
 	    long time_avg = TimeAsUsec(time_sample_total) / (long)LOAD_SAMPLES;
-	    Log($"Load avg {load_avg}/{Runtime.MaxInstructionCount} in {time_avg}us");
+	    Log($"Load avg {load_avg}% in {time_avg}us");
 
             // Start at T-1 - exec time hasn't been updated yet.
             for (int i = 1; i < 16; i++) {
-                long load = _load[LoadOffset(-i)].Load;
+                long load = (long)_load[LoadOffset(-i)].Load;
                 long time = TimeAsUsec(_load[LoadOffset(-i)].Time);
-                Log($"  [T-{i,-2}] Load {load} in {time}us");
+                Log($"  [T-{i,-2}] Load {load}% in {time}us");
             }
             FlushToPanels(PANELS_DEBUG);
         }
@@ -729,7 +729,7 @@ public void Warning(string s) {
 
 public void UpdateTimeChart() {
     UpdateChart(CHART_TIME, (double)TimeAsUsec(_load[LoadOffset(-1)].Time));
-    UpdateChart(CHART_LOAD, (double)_load[LoadOffset(-1)].Load);
+    UpdateChart(CHART_LOAD, _load[LoadOffset(-1)].Load);
 }
 
 public void UpdatePowerCharts() {
@@ -748,10 +748,11 @@ public void UpdateCargoCharts() {
 
 public void UpdateGasCharts() {
     int now = GasOffset(0);
-    UpdateChart(CHART_O2_USED_VOLUME, (double)_gas[now].CurrentStoredO2);
-    UpdateChart(CHART_O2_FREE_VOLUME, (double)_gas[now].MaxStoredO2 - (double)_gas[now].CurrentStoredO2);
-    UpdateChart(CHART_H2_USED_VOLUME, (double)_gas[now].CurrentStoredH2);
-    UpdateChart(CHART_H2_FREE_VOLUME, (double)_gas[now].MaxStoredH2 - (double)_gas[now].CurrentStoredH2);
+    // Recorded as Litres displaying as m3: 1000L = 1m3.
+    UpdateChart(CHART_O2_USED_VOLUME, (double)_gas[now].CurrentStoredO2 / 1000.0);
+    UpdateChart(CHART_O2_FREE_VOLUME, ((double)_gas[now].MaxStoredO2 - (double)_gas[now].CurrentStoredO2) / 1000.0);
+    UpdateChart(CHART_H2_USED_VOLUME, (double)_gas[now].CurrentStoredH2 / 1000.0);
+    UpdateChart(CHART_H2_FREE_VOLUME, ((double)_gas[now].MaxStoredH2 - (double)_gas[now].CurrentStoredH2) / 1000.0);
 }
 
 public void UpdateProdCharts() {
