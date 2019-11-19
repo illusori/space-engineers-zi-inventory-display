@@ -112,6 +112,20 @@ O2 Vol | How much volume (m3) is used within all oxygen tanks.
 O2 Free | How much volume (m3) is free within all oxygen tanks.
 H2 Vol | How much volume (m3) is used within all hydrogen tanks.
 H2 Free | How much volume (m3) is free within all hydrogen tanks.
+All Active Assemblers | How many assemblers (all types) are active.
+All Assemblers | How many assemblers (all types) in total are available.
+Active Assemblers | How many assemblers (full type) are active.
+Assemblers | How many assemblers (full type) are available.
+Active Basic Assemblers | How many basic assemblers are active.
+Basic Assemblers | How many basic assemblers are available.
+All Active Refineries | How many refineries (all types) are active.
+All Refineries | How many refineries (all types) are available.
+Active Refineries | How many refineries (full type) are active.
+Refineries | How many refineries (full type) are available.
+Active Basic Refineries | How many basic refineries are active.
+Basic Refineries | How many basic refineries are available.
+Active Survival Kits | How many survival kits are producing.
+Survival Kits | How many survival kits are available.
 Inv Exec Time | (debug) Microsecond timings of how long the script ran for on each invocation.
 Inv Instr Load | (debug) Instruction count complexity load for each invocation of the script.
 
@@ -132,10 +146,10 @@ show_cur | true | Should the current series value be displayed in the bottom bor
 show_avg | true | Should the average value of the displayed bars be shown?
 show_max | false | Should the max value of the displayed bars be shown?
 show_scale | true | Should the scale (max Y point) be displayed in the bottom border?
+title | chart name | Title to display for the chart.
+unit | varies | Unit to use for display. (Note: Doesn't change chart scaling, just the unit label.)
 
 The scale is automatically set by some heuristics that sorta make sense and seem to work for me.
-
-There's currently no way to set the title to be something other than the name of the series.
 
 Setting x/y/width/height values that are outside the bounds of the display will stop the script, you'll need to fix the values then recompile the script. As I said at the top, it isn't very user-friendly right now.
 

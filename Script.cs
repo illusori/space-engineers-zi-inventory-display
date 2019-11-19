@@ -9,37 +9,54 @@ const int LOAD_HISTORY    = 100;
 const int CARGO_HISTORY   = 100;
 const int BATTERY_HISTORY = 100;
 const int GAS_HISTORY     = 100;
+const int PROD_HISTORY    = 100;
 
 const int INV_SAMPLES     = 10;
 const int LOAD_SAMPLES    = 10;
 const int CARGO_SAMPLES   = 10;
 const int BATTERY_SAMPLES = 10;
 const int GAS_SAMPLES     = 10;
+const int PROD_SAMPLES    = 10;
 
 const int CYCLES_TOP     = 0;
 const int CYCLES_INV     = 1;
 const int CYCLES_CARGO   = 2;
 const int CYCLES_BATTERY = 3;
 const int CYCLES_GAS     = 4;
-const int SIZE_CYCLES    = 5;
+const int CYCLES_PROD    = 5;
+const int SIZE_CYCLES    = 6;
 
 const int PANELS_DEBUG = 0;
 const int PANELS_WARN  = 1;
 const int PANELS_INV   = 2;
 const int SIZE_PANELS  = 3;
 
-const string CHART_TIME              = "Inv Exec Time";
-const string CHART_LOAD              = "Inv Instr Load";
-const string CHART_POWER_STORED      = "Stored Power";
-const string CHART_POWER_IN          = "Power In";
-const string CHART_POWER_OUT         = "Power Out";
-const string CHART_CARGO_USED_MASS   = "Cargo Mass";
-const string CHART_CARGO_USED_VOLUME = "Cargo Vol";
-const string CHART_CARGO_FREE_VOLUME = "Cargo Free";
-const string CHART_O2_USED_VOLUME    = "O2 Vol";
-const string CHART_O2_FREE_VOLUME    = "O2 Free";
-const string CHART_H2_USED_VOLUME    = "H2 Vol";
-const string CHART_H2_FREE_VOLUME    = "H2 Free";
+const string CHART_TIME                = "Inv Exec Time";
+const string CHART_LOAD                = "Inv Instr Load";
+const string CHART_POWER_STORED        = "Stored Power";
+const string CHART_POWER_IN            = "Power In";
+const string CHART_POWER_OUT           = "Power Out";
+const string CHART_CARGO_USED_MASS     = "Cargo Mass";
+const string CHART_CARGO_USED_VOLUME   = "Cargo Vol";
+const string CHART_CARGO_FREE_VOLUME   = "Cargo Free";
+const string CHART_O2_USED_VOLUME      = "O2 Vol";
+const string CHART_O2_FREE_VOLUME      = "O2 Free";
+const string CHART_H2_USED_VOLUME      = "H2 Vol";
+const string CHART_H2_FREE_VOLUME      = "H2 Free";
+const string CHART_ALL_ASSEM_ACTIVE    = "All Active Assemblers";
+const string CHART_ALL_ASSEM_TOTAL     = "All Assemblers";
+const string CHART_ASSEM_ACTIVE        = "Active Assemblers";
+const string CHART_ASSEM_TOTAL         = "Assemblers";
+const string CHART_BASIC_ASSEM_ACTIVE  = "Active Basic Assemblers";
+const string CHART_BASIC_ASSEM_TOTAL   = "Basic Assemblers";
+const string CHART_ALL_REFINE_ACTIVE   = "All Active Refineries";
+const string CHART_ALL_REFINE_TOTAL    = "All Refineries";
+const string CHART_REFINE_ACTIVE       = "Active Refineries";
+const string CHART_REFINE_TOTAL        = "Refineries";
+const string CHART_BASIC_REFINE_ACTIVE = "Active Basic Refineries";
+const string CHART_BASIC_REFINE_TOTAL  = "Basic Refineries";
+const string CHART_SURV_KIT_ACTIVE     = "Active Survival Kits";
+const string CHART_SURV_KIT_TOTAL      = "Survival Kits";
 
 MyIni _ini = new MyIni();
 
@@ -58,6 +75,7 @@ List<IMyProgrammableBlock> _chart_blocks = new List<IMyProgrammableBlock>();
 List<IMyCargoContainer> _cargo_blocks = new List<IMyCargoContainer>();
 List<IMyBatteryBlock> _battery_blocks = new List<IMyBatteryBlock>();
 List<IMyGasTank> _gas_tank_blocks = new List<IMyGasTank>();
+List<IMyProductionBlock> _prod_blocks = new List<IMyProductionBlock>();
 
 class LoadSample {
     public long Load;
@@ -76,11 +94,21 @@ class GasSample {
     public double CurrentStoredO2, MaxStoredO2, CurrentStoredH2, MaxStoredH2;
 }
 
+class ProdSample {
+    public int AllAssemActive, AssemActive, BasicAssemActive;
+    public int AllAssemTotal, AssemTotal, BasicAssemTotal;
+    public int AllRefineActive, RefineActive, BasicRefineActive;
+    public int AllRefineTotal, RefineTotal, BasicRefineTotal;
+    public int SurvKitActive;
+    public int SurvKitTotal;
+}
+
 List<LoadSample> _load = new List<LoadSample>(LOAD_HISTORY);
 List<Dictionary<MyItemType, double>> _item_counts = new List<Dictionary<MyItemType, double>>(INV_HISTORY);
 List<CargoSample> _cargo = new List<CargoSample>(CARGO_HISTORY);
 List<BatterySample> _battery = new List<BatterySample>(BATTERY_HISTORY);
 List<GasSample> _gas = new List<GasSample>(GAS_HISTORY);
+List<ProdSample> _prod = new List<ProdSample>(PROD_HISTORY);
 
 
 long load_sample_total = 0;
@@ -116,6 +144,9 @@ public Program() {
     for (int i = 0; i < GAS_HISTORY; i++) {
         _gas.Add(new GasSample());
     }
+    for (int i = 0; i < PROD_HISTORY; i++) {
+        _prod.Add(new ProdSample());
+    }
 
     FindPanels();
     FindChartBlocks();
@@ -123,6 +154,7 @@ public Program() {
     FindCargoBlocks();
     FindBatteryBlocks();
     FindGasBlocks();
+    FindProdBlocks();
 
     if (!Me.CustomName.Contains(_script_name)) {
         // Update our block to include our script name
@@ -147,6 +179,7 @@ public int LoadOffset(int delta)    { return SafeMod(_cycles[CYCLES_TOP] + delta
 public int CargoOffset(int delta)   { return SafeMod(_cycles[CYCLES_CARGO] + delta, CARGO_HISTORY); }
 public int BatteryOffset(int delta) { return SafeMod(_cycles[CYCLES_BATTERY] + delta, BATTERY_HISTORY); }
 public int GasOffset(int delta) { return SafeMod(_cycles[CYCLES_GAS] + delta, GAS_HISTORY); }
+public int ProdOffset(int delta) { return SafeMod(_cycles[CYCLES_PROD] + delta, PROD_HISTORY); }
 
 public void Main(string argument, UpdateType updateSource) {
     try {
@@ -174,25 +207,29 @@ public void Main(string argument, UpdateType updateSource) {
                 FindPanels();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 1) {
-                FindInventoryBlocks();
+                FindChartBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 2) {
-                FindCargoBlocks();
+                FindInventoryBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 3) {
-                FindBatteryBlocks();
+                FindCargoBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 4) {
-                FindGasBlocks();
+                FindBatteryBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 5) {
-                FindChartBlocks();
+                FindGasBlocks();
+            }
+            if ((_cycles[CYCLES_TOP] % 30) == 6) {
+                FindProdBlocks();
             }
 
             UpdateInventoryStats();
             UpdateCargoStats();
             UpdateBatteryStats();
             UpdateGasStats();
+            UpdateProdStats();
 
             UpdateInventoryText();
             UpdateCargoText();
@@ -206,6 +243,7 @@ public void Main(string argument, UpdateType updateSource) {
 	    UpdatePowerCharts();
 	    UpdateCargoCharts();
 	    UpdateGasCharts();
+	    UpdateProdCharts();
 
 	    _load[LoadOffset(0)].Load = Runtime.CurrentInstructionCount;
 	    //_load[LoadOffset(0)].Time = (DateTime.Now - start_time).Ticks;
@@ -429,6 +467,82 @@ public void UpdateGasStats() {
     Log($"  {num_o2_tanks} O2 tanks and {num_h2_tanks} H2 tanks.");
 }
 
+public void UpdateProdStats() {
+    _cycles[CYCLES_PROD]++;
+
+    int last = ProdOffset(-PROD_SAMPLES), current = ProdOffset(0);
+    ProdSample sample = _prod[current];
+
+    sample.AllAssemActive    = 0;
+    sample.AssemActive       = 0;
+    sample.BasicAssemActive  = 0;
+    sample.AllAssemTotal     = 0;
+    sample.AssemTotal        = 0;
+    sample.BasicAssemTotal   = 0;
+    sample.AllRefineActive   = 0;
+    sample.RefineActive      = 0;
+    sample.BasicRefineActive = 0;
+    sample.AllRefineTotal    = 0;
+    sample.RefineTotal       = 0;
+    sample.BasicRefineTotal  = 0;
+    sample.SurvKitActive     = 0;
+    sample.SurvKitTotal      = 0;
+
+    foreach (IMyProductionBlock prod_block in _prod_blocks) {
+        if (prod_block == null) {
+            //Log("Block is null.");
+            continue;
+        }
+        if (prod_block is IMyAssembler) {
+            // Such a hack :/
+            if (prod_block.DefinitionDisplayNameText == "Assembler") {
+                sample.AllAssemTotal++;
+                sample.AssemTotal++;
+                if (prod_block.IsProducing) {
+                    sample.AllAssemActive++;
+                    sample.AssemActive++;
+                }
+            } else if (prod_block.DefinitionDisplayNameText == "Basic Assembler") {
+                sample.AllAssemTotal++;
+                sample.BasicAssemTotal++;
+                if (prod_block.IsProducing) {
+                    sample.AllAssemActive++;
+                    sample.BasicAssemActive++;
+                }
+            } else if (prod_block.DefinitionDisplayNameText == "Survival kit") {
+                sample.SurvKitTotal++;
+                if (prod_block.IsProducing) {
+                    sample.SurvKitActive++;
+                }
+            } else {
+                Log($"Unknown assembler block type: {prod_block.DefinitionDisplayNameText}.");
+            }
+        } else if (prod_block is IMyRefinery) {
+            // Such a hack :/
+            if (prod_block.DefinitionDisplayNameText == "Refinery") {
+                sample.AllRefineTotal++;
+                sample.RefineTotal++;
+                if (prod_block.IsProducing) {
+                    sample.AllRefineActive++;
+                    sample.RefineActive++;
+                }
+            } else if (prod_block.DefinitionDisplayNameText == "Basic Refinery") {
+                sample.AllRefineTotal++;
+                sample.BasicRefineTotal++;
+                if (prod_block.IsProducing) {
+                    sample.AllRefineActive++;
+                    sample.BasicRefineActive++;
+                }
+            } else {
+                Log($"Unknown refinery block type: {prod_block.DefinitionDisplayNameText}.");
+            }
+        } else {
+            Log($"Unknown production block type: {prod_block.DefinitionDisplayNameText}.");
+        }
+    }
+    Log($"  {sample.AllAssemActive}/{sample.AllAssemTotal} assemblers and {sample.AllRefineActive}/{sample.AllRefineTotal} refineries active.");
+}
+
 public string GetItemName(MyItemType item_type) {
     if (item_type.TypeId == "MyObjectBuilder_Ingot") {
         if (item_type.SubtypeId == "Stone")
@@ -503,6 +617,20 @@ public void FindChartBlocks() {
     SendChartCommand($"create \"{CHART_O2_FREE_VOLUME}\" \"m3\"");
     SendChartCommand($"create \"{CHART_H2_USED_VOLUME}\" \"m3\"");
     SendChartCommand($"create \"{CHART_H2_FREE_VOLUME}\" \"m3\"");
+    SendChartCommand($"create \"{CHART_ALL_ASSEM_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_ALL_ASSEM_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_ASSEM_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_ASSEM_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_BASIC_ASSEM_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_BASIC_ASSEM_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_ALL_REFINE_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_ALL_REFINE_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_REFINE_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_REFINE_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_BASIC_REFINE_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_BASIC_REFINE_TOTAL}\" \"\"");
+    SendChartCommand($"create \"{CHART_SURV_KIT_ACTIVE}\" \"\"");
+    SendChartCommand($"create \"{CHART_SURV_KIT_TOTAL}\" \"\"");
 }
 
 public void FindInventoryBlocks() {
@@ -527,6 +655,12 @@ public void FindGasBlocks() {
     _gas_tank_blocks.Clear();
     GridTerminalSystem.GetBlocksOfType<IMyGasTank>(_gas_tank_blocks);
     //Log($"Found {_gas_tank_blocks.Count} gas tank blocks.");
+}
+
+public void FindProdBlocks() {
+    _prod_blocks.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyProductionBlock>(_prod_blocks);
+    //Log($"Found {_prod_blocks.Count} production blocks.");
 }
 
 /*
@@ -618,4 +752,23 @@ public void UpdateGasCharts() {
     UpdateChart(CHART_O2_FREE_VOLUME, (double)_gas[now].MaxStoredO2 - (double)_gas[now].CurrentStoredO2);
     UpdateChart(CHART_H2_USED_VOLUME, (double)_gas[now].CurrentStoredH2);
     UpdateChart(CHART_H2_FREE_VOLUME, (double)_gas[now].MaxStoredH2 - (double)_gas[now].CurrentStoredH2);
+}
+
+public void UpdateProdCharts() {
+    int now = ProdOffset(0);
+    ProdSample sample = _prod[now];
+    UpdateChart(CHART_ALL_ASSEM_ACTIVE, (double)sample.AllAssemActive);
+    UpdateChart(CHART_ALL_ASSEM_TOTAL, (double)sample.AllAssemTotal);
+    UpdateChart(CHART_ASSEM_ACTIVE, (double)sample.AssemActive);
+    UpdateChart(CHART_ASSEM_TOTAL, (double)sample.AssemTotal);
+    UpdateChart(CHART_BASIC_ASSEM_ACTIVE, (double)sample.BasicAssemActive);
+    UpdateChart(CHART_BASIC_ASSEM_TOTAL, (double)sample.BasicAssemTotal);
+    UpdateChart(CHART_ALL_REFINE_ACTIVE, (double)sample.AllRefineActive);
+    UpdateChart(CHART_ALL_REFINE_TOTAL, (double)sample.AllRefineTotal);
+    UpdateChart(CHART_REFINE_ACTIVE, (double)sample.RefineActive);
+    UpdateChart(CHART_REFINE_TOTAL, (double)sample.RefineTotal);
+    UpdateChart(CHART_BASIC_REFINE_ACTIVE, (double)sample.BasicRefineActive);
+    UpdateChart(CHART_BASIC_REFINE_TOTAL, (double)sample.BasicRefineTotal);
+    UpdateChart(CHART_SURV_KIT_ACTIVE, (double)sample.SurvKitActive);
+    UpdateChart(CHART_SURV_KIT_TOTAL, (double)sample.SurvKitTotal);
 }
