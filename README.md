@@ -103,6 +103,7 @@ Creates three charts on one display:
 Series name | Description
 --- | ---
 Stored Power | How much power is stored in your batteries.
+Max Stored Power | How much power can be stored in your batteries.
 Power In | How much power is entering your batteries.
 Power Out | How much power is leaving your batteries.
 Cargo Mass | How much mass (tonnes) of cargo is within all cargo containers.

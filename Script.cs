@@ -34,6 +34,7 @@ const int SIZE_PANELS  = 3;
 const string CHART_TIME                = "Inv Exec Time";
 const string CHART_LOAD                = "Inv Instr Load";
 const string CHART_POWER_STORED        = "Stored Power";
+const string CHART_MAX_POWER_STORED    = "Max Stored Power";
 const string CHART_POWER_IN            = "Power In";
 const string CHART_POWER_OUT           = "Power Out";
 const string CHART_CARGO_USED_MASS     = "Cargo Mass";
@@ -608,6 +609,7 @@ public void FindChartBlocks() {
     SendChartCommand($"create \"{CHART_TIME}\" \"us\"");
     SendChartCommand($"create \"{CHART_LOAD}\" \"%\"");
     SendChartCommand($"create \"{CHART_POWER_STORED}\" \"MWh\"");
+    SendChartCommand($"create \"{CHART_MAX_POWER_STORED}\" \"MWh\"");
     SendChartCommand($"create \"{CHART_POWER_IN}\" \"MW\"");
     SendChartCommand($"create \"{CHART_POWER_OUT}\" \"MW\"");
     SendChartCommand($"create \"{CHART_CARGO_USED_MASS}\" \"kt\"");
@@ -735,6 +737,7 @@ public void UpdateTimeChart() {
 public void UpdatePowerCharts() {
     int now = BatteryOffset(0);
     UpdateChart(CHART_POWER_STORED, (double)_battery[now].CurrentStoredPower);
+    UpdateChart(CHART_MAX_POWER_STORED, (double)_battery[now].MaxStoredPower);
     UpdateChart(CHART_POWER_IN, (double)_battery[now].CurrentInput);
     UpdateChart(CHART_POWER_OUT, (double)_battery[now].CurrentOutput);
 }
