@@ -1,8 +1,13 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "2.0.0";
+string _script_version = "3.0.0";
 
 string _script_title = null;
 string _script_title_nl = null;
+
+const string PUBSUB_SCRIPT_NAME = "Zephyr Industries PubSub Controller";
+const string PUBSUB_ID = "zi.inv-display";
+
+const string BARCHARTS_SCRIPT_NAME = "Zephyr Industries Bar Charts";
 
 const int INV_HISTORY     = 100;
 const int LOAD_HISTORY    = 100;
@@ -68,6 +73,7 @@ List<int> _cycles = new List<int>(SIZE_CYCLES);
 
 List<List<IMyTextPanel>> _panels = new List<List<IMyTextPanel>>(SIZE_PANELS);
 List<string> _panel_text = new List<string>(SIZE_PANELS) { "", "", "", "", "" };
+List<IMyProgrammableBlock> _pubsub_blocks = new List<IMyProgrammableBlock>();
 
 string _inv_text = "", _cargo_text = ""; // FIXME: StringBuilder?
 
@@ -150,6 +156,7 @@ public Program() {
     }
 
     FindPanels();
+    FindPubSubBlocks();
     FindChartBlocks();
     FindInventoryBlocks();
     FindCargoBlocks();
@@ -208,21 +215,24 @@ public void Main(string argument, UpdateType updateSource) {
                 FindPanels();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 1) {
-                FindChartBlocks();
+                FindPubSubBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 2) {
-                FindInventoryBlocks();
+                FindChartBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 3) {
-                FindCargoBlocks();
+                FindInventoryBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 4) {
-                FindBatteryBlocks();
+                FindCargoBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 5) {
-                FindGasBlocks();
+                FindBatteryBlocks();
             }
             if ((_cycles[CYCLES_TOP] % 30) == 6) {
+                FindGasBlocks();
+            }
+            if ((_cycles[CYCLES_TOP] % 30) == 7) {
                 FindProdBlocks();
             }
 
@@ -236,7 +246,7 @@ public void Main(string argument, UpdateType updateSource) {
             UpdateCargoText();
             CompositeInventoryPanel();
 
-            Log($"  {_chart_blocks.Count()} chart blocks found.");
+            Log($"  {_pubsub_blocks.Count()} pubsub and {_chart_blocks.Count()} chart blocks found.");
 
             FlushToPanels(PANELS_INV);
 
@@ -275,6 +285,21 @@ public void Main(string argument, UpdateType updateSource) {
 public long TimeAsUsec(double t) {
     //return (t * 1000L) / TimeSpan.TicksPerMillisecond;
     return (long)(t * 1000.0);
+}
+
+public void FindPubSubBlocks() {
+    _pubsub_blocks.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_pubsub_blocks, block => block.CustomName.Contains(PUBSUB_SCRIPT_NAME));
+    // If we registered any events, we'd do it like this:
+    //IssueEvent("pubsub.register", $"datapoint.issue {Me.EntityId}");
+}
+
+public void IssueEvent(string event_name, string event_args) {
+    foreach (IMyProgrammableBlock block in _pubsub_blocks) {
+        if (block != null) {
+            block.TryRun($"event {PUBSUB_ID} {event_name} {event_args}");
+        }
+    }
 }
 
 public void UpdateInventoryStats() {
@@ -593,6 +618,7 @@ public void FindPanels() {
     }
 }
 
+// Used as a fallback if they don't have PubSub installed.
 public void SendChartCommand(string command) {
     for (int i = 0, sz = _chart_blocks.Count; i < sz; i++) {
         _chart_blocks[i].TryRun(command);
@@ -600,39 +626,51 @@ public void SendChartCommand(string command) {
 }
 
 public void UpdateChart(string chart, double value) {
-    SendChartCommand($"add \"{chart}\" {value}");
+    if (_pubsub_blocks.Count != 0) {
+        IssueEvent("datapoint.issue", $"\"{chart}\" {value}");
+    } else {
+        SendChartCommand($"add \"{chart}\" {value}");
+    }
+}
+
+public void CreateChart(string chart, string unit) {
+    if (_pubsub_blocks.Count != 0) {
+        IssueEvent("dataset.create", $"\"{chart}\" \"{unit}\"");
+    } else {
+        SendChartCommand($"create \"{chart}\" \"{unit}\"");
+    }
 }
 
 public void FindChartBlocks() {
     _chart_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_chart_blocks, block => block.CustomName.Contains("Zephyr Industries Bar Charts"));
-    SendChartCommand($"create \"{CHART_TIME}\" \"us\"");
-    SendChartCommand($"create \"{CHART_LOAD}\" \"%\"");
-    SendChartCommand($"create \"{CHART_POWER_STORED}\" \"MWh\"");
-    SendChartCommand($"create \"{CHART_MAX_POWER_STORED}\" \"MWh\"");
-    SendChartCommand($"create \"{CHART_POWER_IN}\" \"MW\"");
-    SendChartCommand($"create \"{CHART_POWER_OUT}\" \"MW\"");
-    SendChartCommand($"create \"{CHART_CARGO_USED_MASS}\" \"kt\"");
-    SendChartCommand($"create \"{CHART_CARGO_USED_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_CARGO_FREE_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_O2_USED_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_O2_FREE_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_H2_USED_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_H2_FREE_VOLUME}\" \"m3\"");
-    SendChartCommand($"create \"{CHART_ALL_ASSEM_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_ALL_ASSEM_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_ASSEM_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_ASSEM_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_BASIC_ASSEM_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_BASIC_ASSEM_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_ALL_REFINE_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_ALL_REFINE_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_REFINE_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_REFINE_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_BASIC_REFINE_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_BASIC_REFINE_TOTAL}\" \"\"");
-    SendChartCommand($"create \"{CHART_SURV_KIT_ACTIVE}\" \"\"");
-    SendChartCommand($"create \"{CHART_SURV_KIT_TOTAL}\" \"\"");
+    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_chart_blocks, block => block.CustomName.Contains(BARCHARTS_SCRIPT_NAME));
+    CreateChart(CHART_TIME, "us");
+    CreateChart(CHART_LOAD, "%");
+    CreateChart(CHART_POWER_STORED, "MWh");
+    CreateChart(CHART_MAX_POWER_STORED, "MWh");
+    CreateChart(CHART_POWER_IN, "MW");
+    CreateChart(CHART_POWER_OUT, "MW");
+    CreateChart(CHART_CARGO_USED_MASS, "kt");
+    CreateChart(CHART_CARGO_USED_VOLUME, "m3");
+    CreateChart(CHART_CARGO_FREE_VOLUME, "m3");
+    CreateChart(CHART_O2_USED_VOLUME, "m3");
+    CreateChart(CHART_O2_FREE_VOLUME, "m3");
+    CreateChart(CHART_H2_USED_VOLUME, "m3");
+    CreateChart(CHART_H2_FREE_VOLUME, "m3");
+    CreateChart(CHART_ALL_ASSEM_ACTIVE, "");
+    CreateChart(CHART_ALL_ASSEM_TOTAL, "");
+    CreateChart(CHART_ASSEM_ACTIVE, "");
+    CreateChart(CHART_ASSEM_TOTAL, "");
+    CreateChart(CHART_BASIC_ASSEM_ACTIVE, "");
+    CreateChart(CHART_BASIC_ASSEM_TOTAL, "");
+    CreateChart(CHART_ALL_REFINE_ACTIVE, "");
+    CreateChart(CHART_ALL_REFINE_TOTAL, "");
+    CreateChart(CHART_REFINE_ACTIVE, "");
+    CreateChart(CHART_REFINE_TOTAL, "");
+    CreateChart(CHART_BASIC_REFINE_ACTIVE, "");
+    CreateChart(CHART_BASIC_REFINE_TOTAL, "");
+    CreateChart(CHART_SURV_KIT_ACTIVE, "");
+    CreateChart(CHART_SURV_KIT_TOTAL, "");
 }
 
 public void FindInventoryBlocks() {
