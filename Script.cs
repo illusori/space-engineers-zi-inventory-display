@@ -289,7 +289,7 @@ public long TimeAsUsec(double t) {
 
 public void FindPubSubBlocks() {
     _pubsub_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_pubsub_blocks, block => block.CustomName.Contains(PUBSUB_SCRIPT_NAME));
+    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_pubsub_blocks, block => block.CustomName.Contains(PUBSUB_SCRIPT_NAME) && block.IsSameConstructAs(Me));
     // If we registered any events, we'd do it like this:
     //IssueEvent("pubsub.register", $"datapoint.issue {Me.EntityId}");
 }
@@ -607,7 +607,7 @@ public string GetItemName(MyItemType item_type) {
 public void FindPanels() {
     for (int i = 0; i < SIZE_PANELS; i++) {
         _panels[i].Clear();
-        GridTerminalSystem.GetBlocksOfType<IMyTextPanel>(_panels[i], block => block.CustomName.Contains(_panel_tags[i]));
+        GridTerminalSystem.GetBlocksOfType<IMyTextPanel>(_panels[i], block => block.CustomName.Contains(_panel_tags[i]) && block.IsSameConstructAs(Me));
         for (int j = 0, szj = _panels[i].Count; j < szj; j++) {
             _panels[i][j].ContentType = ContentType.TEXT_AND_IMAGE;
             _panels[i][j].Font = "Monospace";
@@ -643,7 +643,7 @@ public void CreateChart(string chart, string unit) {
 
 public void FindChartBlocks() {
     _chart_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_chart_blocks, block => block.CustomName.Contains(BARCHARTS_SCRIPT_NAME));
+    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(_chart_blocks, block => block.CustomName.Contains(BARCHARTS_SCRIPT_NAME) && block.IsSameConstructAs(Me));
     CreateChart(CHART_TIME, "us");
     CreateChart(CHART_LOAD, "%");
     CreateChart(CHART_POWER_STORED, "MWh");
@@ -675,38 +675,38 @@ public void FindChartBlocks() {
 
 public void FindInventoryBlocks() {
     _inventory_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyTerminalBlock>(_inventory_blocks, block => block.HasInventory);
+    GridTerminalSystem.GetBlocksOfType<IMyTerminalBlock>(_inventory_blocks, block => block.HasInventory && block.IsSameConstructAs(Me));
     //Log($"Found {_inventory_blocks.Count} inventory blocks.");
 }
 
 public void FindCargoBlocks() {
     _cargo_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(_cargo_blocks, block => block.HasInventory);
+    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(_cargo_blocks, block => block.HasInventory && block.IsSameConstructAs(Me));
     //Log($"Found {_cargo_blocks.Count} cargo blocks.");
 }
 
 public void FindBatteryBlocks() {
     _battery_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(_battery_blocks);
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(_battery_blocks, block => block.IsSameConstructAs(Me));
     //Log($"Found {_battery_blocks.Count} battery blocks.");
 }
 
 public void FindGasBlocks() {
     _gas_tank_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyGasTank>(_gas_tank_blocks);
+    GridTerminalSystem.GetBlocksOfType<IMyGasTank>(_gas_tank_blocks, block => block.IsSameConstructAs(Me));
     //Log($"Found {_gas_tank_blocks.Count} gas tank blocks.");
 }
 
 public void FindProdBlocks() {
     _prod_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyProductionBlock>(_prod_blocks);
+    GridTerminalSystem.GetBlocksOfType<IMyProductionBlock>(_prod_blocks, block => block.IsSameConstructAs(Me));
     //Log($"Found {_prod_blocks.Count} production blocks.");
 }
 
 /*
 public void FindPowerProducerBlocks() {
     _power_blocks.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyPowerProducer>(_power_blocks);
+    GridTerminalSystem.GetBlocksOfType<IMyPowerProducer>(_power_blocks, block => block.IsSameConstructAs(Me));
     //Log($"Found {_power_blocks.Count} power-producing blocks.");
 }
  */
