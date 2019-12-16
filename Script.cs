@@ -1,5 +1,5 @@
 ﻿string _script_name = "Zephyr Industries Inventory Display";
-string _script_version = "3.0.0";
+string _script_version = "3.0.1";
 
 string _script_title = null;
 string _script_title_nl = null;
@@ -650,7 +650,7 @@ public void FindChartBlocks() {
     CreateChart(CHART_MAX_POWER_STORED, "MWh");
     CreateChart(CHART_POWER_IN, "MW");
     CreateChart(CHART_POWER_OUT, "MW");
-    CreateChart(CHART_CARGO_USED_MASS, "kt");
+    CreateChart(CHART_CARGO_USED_MASS, "t");
     CreateChart(CHART_CARGO_USED_VOLUME, "m3");
     CreateChart(CHART_CARGO_FREE_VOLUME, "m3");
     CreateChart(CHART_O2_USED_VOLUME, "m3");
@@ -782,7 +782,7 @@ public void UpdatePowerCharts() {
 
 public void UpdateCargoCharts() {
     int now = CargoOffset(0);
-    UpdateChart(CHART_CARGO_USED_MASS, (double)_cargo[now].UsedMass / 1000000.0);
+    UpdateChart(CHART_CARGO_USED_MASS, (double)_cargo[now].UsedMass / 1000.0);
     UpdateChart(CHART_CARGO_USED_VOLUME, (double)_cargo[now].UsedVolume);
     UpdateChart(CHART_CARGO_FREE_VOLUME, (double)_cargo[now].MaxVolume - (double)_cargo[now].UsedVolume);
 }
