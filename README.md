@@ -100,35 +100,35 @@ Creates three charts on one display:
 
 ### List of chart series
 
-Series name | Description
---- | ---
-Stored Power | How much power is stored in your batteries.
-Max Stored Power | How much power can be stored in your batteries.
-Power In | How much power is entering your batteries.
-Power Out | How much power is leaving your batteries.
-Cargo Mass | How much mass (tonnes) of cargo is within all cargo containers.
-Cargo Vol | How much volume (m3) is used within all cargo containers.
-Cargo Free | How much volume (m3) is free within all cargo containers.
-O2 Vol | How much volume (m3) is used within all oxygen tanks.
-O2 Free | How much volume (m3) is free within all oxygen tanks.
-H2 Vol | How much volume (m3) is used within all hydrogen tanks.
-H2 Free | How much volume (m3) is free within all hydrogen tanks.
-All Active Assemblers | How many assemblers (all types) are active.
-All Assemblers | How many assemblers (all types) in total are available.
-Active Assemblers | How many assemblers (full type) are active.
-Assemblers | How many assemblers (full type) are available.
-Active Basic Assemblers | How many basic assemblers are active.
-Basic Assemblers | How many basic assemblers are available.
-All Active Refineries | How many refineries (all types) are active.
-All Refineries | How many refineries (all types) are available.
-Active Refineries | How many refineries (full type) are active.
-Refineries | How many refineries (full type) are available.
-Active Basic Refineries | How many basic refineries are active.
-Basic Refineries | How many basic refineries are available.
-Active Survival Kits | How many survival kits are producing.
-Survival Kits | How many survival kits are available.
-Inv Exec Time | (debug) Microsecond timings of how long the script ran for on each invocation.
-Inv Instr Load | (debug) Instruction count complexity load for each invocation of the script.
+Series name | Default Unit | Description
+:---: | :---: | :---
+Stored Power | MWh | How much power is stored in your batteries.
+Max Stored Power | MWh | How much power can be stored in your batteries.
+Power In | MW | How much power is entering your batteries.
+Power Out | MW | How much power is leaving your batteries.
+Cargo Mass | t | How much mass of cargo is within all cargo containers.
+Cargo Vol | m3 | How much volume is used within all cargo containers.
+Cargo Free | m3 | How much volume is free within all cargo containers.
+O2 Vol | m3 | How much volume is used within all oxygen tanks.
+O2 Free | m3 | How much volume is free within all oxygen tanks.
+H2 Vol | m3 | How much volume is used within all hydrogen tanks.
+H2 Free | m3 | How much volume is free within all hydrogen tanks.
+All Active Assemblers | - | How many assemblers (all types) are active.
+All Assemblers | - | How many assemblers (all types) in total are available.
+Active Assemblers | - | How many assemblers (full type) are active.
+Assemblers | - | How many assemblers (full type) are available.
+Active Basic Assemblers | - | How many basic assemblers are active.
+Basic Assemblers | - | How many basic assemblers are available.
+All Active Refineries | - | How many refineries (all types) are active.
+All Refineries | - | How many refineries (all types) are available.
+Active Refineries | - | How many refineries (full type) are active.
+Refineries | - | How many refineries (full type) are available.
+Active Basic Refineries | - | How many basic refineries are active.
+Basic Refineries | - | How many basic refineries are available.
+Active Survival Kits | - | How many survival kits are producing.
+Survival Kits | - | How many survival kits are available.
+Inv Exec Time | us | (debug) Microsecond timings of how long the script ran for on each invocation.
+Inv Instr Load | - | (debug) Instruction count complexity load for each invocation of the script.
 
 ### List of chart options
 
@@ -151,8 +151,6 @@ title | chart name | Title to display for the chart.
 unit | varies | Unit to use for display. (Note: Doesn't change chart scaling, just the unit label.)
 
 The scale is automatically set by some heuristics that sorta make sense and seem to work for me.
-
-Setting x/y/width/height values that are outside the bounds of the display will stop the script, you'll need to fix the values then recompile the script. As I said at the top, it isn't very user-friendly right now.
 
 ## Contributing:
 
