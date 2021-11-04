@@ -51,7 +51,7 @@ const string CHART_BASIC_REFINE_TOTAL  = "Basic Refineries";
 const string CHART_SURV_KIT_ACTIVE     = "Active Survival Kits";
 const string CHART_SURV_KIT_TOTAL      = "Survival Kits";
 
-const string PANELS_INV_TAG = "@" + SCRIPT_ID;
+const string PANELS_INV_TAG = "@InvStats";
 
 MyIni _ini = new MyIni();
 
@@ -621,7 +621,7 @@ public void UpdateProdCharts() {
 }
 
 class ZIScript {
-    public const string ZIS_VERSION = "3.0.0";
+    public const string ZIS_VERSION = "3.0.2";
 
     public const string SCRIPT_TITLE = Program.SCRIPT_FULL_NAME + " v" + Program.SCRIPT_VERSION + " (ZIS v" + ZIS_VERSION + ")";
     public const string SCRIPT_TITLE_NL = SCRIPT_TITLE + "\n";
@@ -632,6 +632,7 @@ class ZIScript {
     public const string CHART_LOAD = Program.SCRIPT_ID + " Instr Load";
     public const string CHART_EVENTS_RX = Program.SCRIPT_ID + " Events Rx";
     public const string CHART_EVENTS_TX = Program.SCRIPT_ID + " Events Tx";
+    public const string CHART_EVENTS_BANDWIDTH = Program.SCRIPT_ID + " Events Bandwidth";
 
     public const string PUBSUB_BROADCAST_PREFIX = "ZIPubSub";
 
@@ -658,13 +659,37 @@ class ZIScript {
     Dictionary<string, ZIPubSubSubscription> _subscriptions = new Dictionary<string, ZIPubSubSubscription>();
     Dictionary<string, Action<string, MyCommandLine, string>> _commands = new Dictionary<string, Action<string, MyCommandLine, string>>();
 
-    // FIXME: _last_run_time_ms_cmds_tally
-    double _time_total = 0.0, _last_run_time_ms_main_tally = 0.0, _last_run_time_ms_events_tally;
-    int _events_rx = 0, _events_tx = 0;
-    bool _last_run_main_loop = false;
+    double _time_total = 0.0;
 
     bool _log_events = false;
     bool _send_data_events_to_self = false;
+
+    public const int LAST_RUN_NONE  = -1;
+    public const int LAST_RUN_MAIN  = 0;
+    public const int LAST_RUN_EVENT = 1;
+    public const int SIZE_LAST_RUN  = 2;
+
+    int _last_run = LAST_RUN_MAIN; // h4x so constructor gets logged in main
+
+    class Tally {
+	public int Cycles;
+	public double Time;
+	public int Instr;
+	public int Rx;
+	public int Tx;
+    }
+
+    // FIXME: needs initializing
+    List <Tally> _tallies = new List<Tally>(SIZE_LAST_RUN);
+
+    class MaxEvent {
+        public double Utilization;
+        public int Rx;
+        public int Max;
+        public string Channel;
+    }
+
+    MaxEvent _max_event = new MaxEvent() { Utilization = 0.0, Rx = 0, Max = 0, Channel = "" };
 
     // Delegates to Program instance for convenience.
     Program Prog;
@@ -676,6 +701,7 @@ class ZIScript {
     /* Reused single-run state objects, only global to avoid realloc/gc-thrashing */
     MyCommandLine _command_line = new MyCommandLine();
 
+    // FIXME: log_events is unused as yet
     public ZIScript(Program prog, Action<UpdateType> mainloop_handler = null, bool log_events = false, bool send_data_events_to_self = false) {
 	Prog = prog;
 	_mainloop_handler = mainloop_handler;
@@ -685,6 +711,11 @@ class ZIScript {
 	// take reference to Me, and Echo
 	Echo = Prog.Echo;
 	Me = Prog.Me;
+
+	for (int i = 0; i < SIZE_LAST_RUN; i++) {
+	    // FIXME: Does this work for initialization?
+	    _tallies.Add(new Tally() { Cycles = 0, Time = 0.0, Instr = 0, Rx = 0, Tx = 0 });
+	}
 
 	_debug_panels = AddPanels($"@{SCRIPT_ID}DebugDisplay");
 	_warning_panels = AddPanels($"@{SCRIPT_ID}WarningDisplay");
@@ -701,32 +732,33 @@ class ZIScript {
     public void Main(string argument, UpdateType updateSource) {
 	try {
 	    // Tally up all invocation times and record them as one on the non-command runs.
-	    if (_last_run_main_loop) {
-		_last_run_time_ms_main_tally += Prog.Runtime.LastRunTimeMs;
-		_last_run_main_loop = false;
-	    } else {
-		_last_run_time_ms_events_tally += Prog.Runtime.LastRunTimeMs;
+	    if (_last_run != LAST_RUN_NONE) {
+		_tallies[_last_run].Time += Prog.Runtime.LastRunTimeMs;
 	    }
+	    _last_run = LAST_RUN_NONE;
 	    if ((updateSource & UpdateType.Update100) != 0) {
+                //Warning("Issuing times");
+		_last_run = LAST_RUN_MAIN;
 		_cycles++;
 
-		IssueDatapoint(CHART_TIME, TimeAsUsec(_last_run_time_ms_main_tally + _last_run_time_ms_events_tally));
-		IssueDatapoint(CHART_MAIN_TIME, TimeAsUsec(_last_run_time_ms_main_tally));
-		IssueDatapoint(CHART_EVENTS_TIME, TimeAsUsec(_last_run_time_ms_events_tally));
+		IssueDatapoint(CHART_TIME, TimeAsUsec(_tallies[LAST_RUN_MAIN].Time + _tallies[LAST_RUN_EVENT].Time));
+		IssueDatapoint(CHART_MAIN_TIME, TimeAsUsec(_tallies[LAST_RUN_MAIN].Time));
+		IssueDatapoint(CHART_EVENTS_TIME, TimeAsUsec(_tallies[LAST_RUN_EVENT].Time));
 		if (_cycles > 1) {
-		    _time_total += _last_run_time_ms_main_tally + _last_run_time_ms_events_tally;
+		    _time_total += _tallies[LAST_RUN_MAIN].Time + _tallies[LAST_RUN_EVENT].Time;
 		    if (_cycles == 201) {
 			Warning($"Total time after 200 cycles: {_time_total}ms.");
 		    }
 		}
-		_last_run_time_ms_main_tally = 0.0;
-		_last_run_time_ms_events_tally = 0.0;
+		_tallies[LAST_RUN_MAIN].Time = 0.0;
+		_tallies[LAST_RUN_EVENT].Time = 0.0;
 
 		ClearPanels(_debug_panels);
 
 		Log(SCRIPT_TITLE_NL);
 
 		if ((_cycles % 30) == 0) {
+                    //Warning("Looking for updates");
 		    FindPanels();
 		    CreateDataset(CHART_TIME, "us");
 		    CreateDataset(CHART_MAIN_TIME, "us");
@@ -734,43 +766,79 @@ class ZIScript {
 		    CreateDataset(CHART_LOAD, "%");
 		    CreateDataset(CHART_EVENTS_RX, "");
 		    CreateDataset(CHART_EVENTS_TX, "");
+		    CreateDataset(CHART_EVENTS_BANDWIDTH, "");
 		}
 	    }
 
 	    if ((updateSource & (UpdateType.Update1 | UpdateType.Update10 | UpdateType.Update100)) != 0) {
+                //Warning("Running mainloop");
+		_last_run = LAST_RUN_MAIN;
 		if (_mainloop_handler != null) {
 		    _mainloop_handler(updateSource);
 		}
 	    }
 
 	    if ((updateSource & UpdateType.Update100) != 0) {
-		double load = (double)Prog.Runtime.CurrentInstructionCount * 100.0 / (double)Prog.Runtime.MaxInstructionCount;
+                //Warning("Issuing load/rx/tx/bandwidth");
+		double load = (double)(_tallies[LAST_RUN_MAIN].Instr + _tallies[LAST_RUN_EVENT].Instr) * 100.0 / (double)(Prog.Runtime.MaxInstructionCount * (_tallies[LAST_RUN_MAIN].Cycles + _tallies[LAST_RUN_EVENT].Cycles));
+		_tallies[LAST_RUN_MAIN].Instr = 0;
+		_tallies[LAST_RUN_EVENT].Instr = 0;
 		IssueDatapoint(CHART_LOAD, load);
 
 		// Slightly sneaky, push the counts for sending rx/tx themseles onto the next cycle.
-		int rx = _events_rx, tx = _events_tx;
-		_events_rx = 0;
-		_events_tx = 0;
+		int rx = _tallies[LAST_RUN_MAIN].Rx + _tallies[LAST_RUN_EVENT].Rx, tx = _tallies[LAST_RUN_MAIN].Tx + _tallies[LAST_RUN_EVENT].Tx;
+		_tallies[LAST_RUN_MAIN].Rx = 0;
+		_tallies[LAST_RUN_EVENT].Rx = 0;
+		_tallies[LAST_RUN_MAIN].Tx = 0;
+		_tallies[LAST_RUN_EVENT].Tx = 0;
+
 		IssueDatapoint(CHART_EVENTS_RX, (double)rx);
 		IssueDatapoint(CHART_EVENTS_TX, (double)tx);
 
-		Log($"[Cycle {_cycles}]\n  Events: {rx} received, {tx} transmitted.");
-		Log($"	{_subscriptions.Count()} event listeners.");
+		Log($"[Cycle {_cycles}]\n  Main loops: {_tallies[LAST_RUN_MAIN].Cycles}. Event loops: {_tallies[LAST_RUN_EVENT].Cycles}\n  Events: {rx} received, {tx} transmitted.\n  {_subscriptions.Count()} event listeners.");
+                Log($"  Max event bandwidth: {_max_event.Utilization}% ({_max_event.Rx} of {_max_event.Max} on '{_max_event.Channel}').");
 		FlushToPanels(_debug_panels);
+
+		_tallies[LAST_RUN_MAIN].Cycles = 0;
+		_tallies[LAST_RUN_EVENT].Cycles = 0;
+                double utilization = _max_event.Utilization;
+                _max_event.Utilization = 0.0;
+                _max_event.Rx = 0;
+                _max_event.Max = 0;
+                _max_event.Channel = "";
+
+		IssueDatapoint(CHART_EVENTS_BANDWIDTH, utilization);
 	    }
 
 	    if ((updateSource & UpdateType.IGC) != 0) {
+                //Warning("Consuming events");
+		_last_run = LAST_RUN_EVENT;
 		ZIPubSubSubscription subscription;
 		string event_name = argument;
 		if (_subscriptions.TryGetValue(event_name, out subscription)) {
+                    int event_rx = 0;
 		    while (subscription.Listener.HasPendingMessage) {
 			MyIGCMessage message = subscription.Listener.AcceptMessage();
-			_events_rx++;
+			_tallies[_last_run].Rx++;
+                        event_rx++;
 			subscription.Handler(event_name, message.Data);
+                        // FIXME: some analysis against Listener.MaxWaitingMessages for channel utilisation metrics
 		    }
+                    double event_utilization = (double)event_rx * 100.0 / (double)subscription.Listener.MaxWaitingMessages;
+                    if (event_utilization > _max_event.Utilization) {
+                        _max_event.Utilization = event_utilization;
+                        _max_event.Rx = event_rx;
+                        _max_event.Max = subscription.Listener.MaxWaitingMessages;
+                        _max_event.Channel = event_name;
+                    }
 		}
 	    } else if (argument != null && argument != "") {
+                //Warning("Processing command");
 		ProcessCommand(argument);
+	    }
+	    if (_last_run != LAST_RUN_NONE) {
+		_tallies[_last_run].Cycles++;
+		_tallies[_last_run].Instr += Prog.Runtime.CurrentInstructionCount;
 	    }
 	} catch (Exception e) {
 	    string mess = $"An exception occurred during script execution.\nException: {e}\n---";
@@ -824,12 +892,12 @@ class ZIScript {
 
     // FIXME: including sender was good.
     public void PublishEvent<TData>(string event_name, TData event_args, TransmissionDistance distance = TransmissionDistance.CurrentConstruct, bool send_to_self = false) {
-	_events_tx++;
+	_tallies[_last_run].Tx++;
 	Prog.IGC.SendBroadcastMessage($"{PUBSUB_BROADCAST_PREFIX} {event_name}", event_args, distance);
 	if (send_to_self) {
 	    ZIPubSubSubscription subscription;
 	    if (_subscriptions.TryGetValue(event_name, out subscription)) {
-		_events_rx++;
+		_tallies[_last_run].Rx++;
 		subscription.Handler(event_name, event_args);
 	    }
 	}
@@ -840,7 +908,8 @@ class ZIScript {
     }
 
     public void IssueDatapoint(string chart_name, double value) {
-	PublishEvent("datapoint.issue", new MyTuple<string, double>(chart_name, value), send_to_self: _send_data_events_to_self);
+//	Warning($"IssueDatapoint {chart_name}={value}");
+	PublishEvent($"datapoint.issue.{chart_name}", new MyTuple<string, double>(chart_name, value), send_to_self: _send_data_events_to_self);
     }
 
     public double TimeAsUsec(double t) {
