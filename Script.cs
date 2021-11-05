@@ -1,6 +1,6 @@
 ﻿const string SCRIPT_FULL_NAME = "Zephyr Industries Inventory Display";
 const string SCRIPT_SHORT_NAME = "ZI Inventory Display";
-const string SCRIPT_VERSION = "4.0.0";
+const string SCRIPT_VERSION = "4.1.0";
 const string SCRIPT_ID = "InvDisplay";
 const string PUBSUB_ID = "zi.inv-display";
 
@@ -60,6 +60,8 @@ MyIni _ini = new MyIni();
 readonly ZIScript _zis;
 
 int _inv_panels;
+
+HashSet<MyItemType> _known_item_types = new HashSet<MyItemType>();
 
 List<int> _cycles = new List<int>(SIZE_CYCLES);
 
@@ -197,6 +199,7 @@ public void MainLoop(UpdateType updateSource) {
 	UpdateCargoCharts();
 	UpdateGasCharts();
 	UpdateProdCharts();
+        UpdateInventoryCharts();
     }
 }
 
@@ -537,6 +540,16 @@ public void CreateCharts() {
     CreateChart(CHART_BASIC_REFINE_TOTAL, "");
     CreateChart(CHART_SURV_KIT_ACTIVE, "");
     CreateChart(CHART_SURV_KIT_TOTAL, "");
+    CreateInventoryCharts();
+}
+
+public void CreateInventoryCharts() {
+    string item_name;
+    foreach (MyItemType item_type in _known_item_types) {
+	item_name = GetItemName(item_type);
+        CreateChart($"Stock {item_name}", "");
+        CreateChart($"Rate {item_name}", "");
+    }
 }
 
 public void FindInventoryBlocks() {
@@ -590,6 +603,25 @@ public void UpdateCargoCharts() {
     UpdateChart(CHART_CARGO_USED_MASS, (double)_cargo[now].UsedMass / 1000.0);
     UpdateChart(CHART_CARGO_USED_VOLUME, (double)_cargo[now].UsedVolume);
     UpdateChart(CHART_CARGO_FREE_VOLUME, (double)_cargo[now].MaxVolume - (double)_cargo[now].UsedVolume);
+}
+
+public void UpdateInventoryCharts() {
+    int last = InvOffset(-INV_SAMPLES), current = InvOffset(0);
+    double old, value;
+    int delta;
+    string item_name;
+    _known_item_types.UnionWith(_item_counts[current].Keys);
+    foreach (MyItemType item_type in _known_item_types) {
+	item_name = GetItemName(item_type);
+        value = 0.0;
+	old = 0.0;
+	_item_counts[current].TryGetValue(item_type, out value);
+	_item_counts[last].TryGetValue(item_type, out old);
+	delta = (int)(value - old) / INV_SAMPLES;
+	_inv_text += $"{(int)value,8} {item_name}{delta,0:' ['+#']';' ['-#']';''}\n";
+        UpdateChart($"Stock {item_name}", (double)value);
+        UpdateChart($"Rate {item_name}", (double)delta);
+    }
 }
 
 public void UpdateGasCharts() {
@@ -679,7 +711,6 @@ class ZIScript {
 	public int Tx;
     }
 
-    // FIXME: needs initializing
     List <Tally> _tallies = new List<Tally>(SIZE_LAST_RUN);
 
     class MaxEvent {
@@ -713,7 +744,6 @@ class ZIScript {
 	Me = Prog.Me;
 
 	for (int i = 0; i < SIZE_LAST_RUN; i++) {
-	    // FIXME: Does this work for initialization?
 	    _tallies.Add(new Tally() { Cycles = 0, Time = 0.0, Instr = 0, Rx = 0, Tx = 0 });
 	}
 
@@ -757,7 +787,7 @@ class ZIScript {
 
 		Log(SCRIPT_TITLE_NL);
 
-		if ((_cycles % 30) == 0) {
+		if ((_cycles % 30) == 1) {
                     //Warning("Looking for updates");
 		    FindPanels();
 		    CreateDataset(CHART_TIME, "us");
@@ -822,7 +852,6 @@ class ZIScript {
 			_tallies[_last_run].Rx++;
                         event_rx++;
 			subscription.Handler(event_name, message.Data);
-                        // FIXME: some analysis against Listener.MaxWaitingMessages for channel utilisation metrics
 		    }
                     double event_utilization = (double)event_rx * 100.0 / (double)subscription.Listener.MaxWaitingMessages;
                     if (event_utilization > _max_event.Utilization) {
@@ -908,7 +937,7 @@ class ZIScript {
     }
 
     public void IssueDatapoint(string chart_name, double value) {
-//	Warning($"IssueDatapoint {chart_name}={value}");
+	//Warning($"IssueDatapoint {chart_name}={value}");
 	PublishEvent($"datapoint.issue.{chart_name}", new MyTuple<string, double>(chart_name, value), send_to_self: _send_data_events_to_self);
     }
 
