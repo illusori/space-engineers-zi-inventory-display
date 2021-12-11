@@ -1,6 +1,6 @@
 ﻿const string SCRIPT_FULL_NAME = "Zephyr Industries Inventory Display";
 const string SCRIPT_SHORT_NAME = "ZI Inventory Display";
-const string SCRIPT_VERSION = "4.1.0";
+const string SCRIPT_VERSION = "4.1.2";
 const string SCRIPT_ID = "InvDisplay";
 const string PUBSUB_ID = "zi.inv-display";
 
@@ -29,6 +29,7 @@ const string CHART_POWER_STORED	       = "Stored Power";
 const string CHART_MAX_POWER_STORED    = "Max Stored Power";
 const string CHART_POWER_IN	       = "Power In";
 const string CHART_POWER_OUT	       = "Power Out";
+const string CHART_NET_POWER_RATE      = "Net Power Rate";
 const string CHART_CARGO_USED_MASS     = "Cargo Mass";
 const string CHART_CARGO_USED_VOLUME   = "Cargo Vol";
 const string CHART_CARGO_FREE_VOLUME   = "Cargo Free";
@@ -79,7 +80,7 @@ class CargoSample {
 }
 
 class BatterySample {
-    public float CurrentStoredPower, MaxStoredPower, CurrentInput, MaxInput, CurrentOutput, MaxOutput;
+    public float CurrentStoredPower, MaxStoredPower, CurrentInput, MaxInput, CurrentOutput, MaxOutput, CurrentNetRate;
 }
 
 class GasSample {
@@ -130,7 +131,6 @@ public Program() {
 	_prod.Add(new ProdSample());
     }
 
-    CreateCharts();
     FindInventoryBlocks();
     FindCargoBlocks();
     FindBatteryBlocks();
@@ -167,21 +167,24 @@ public void MainLoop(UpdateType updateSource) {
 	_cycles[CYCLES_TOP]++;
 
 	if ((_cycles[CYCLES_TOP] % 30) == 2) {
-	    CreateCharts();
-	}
-	if ((_cycles[CYCLES_TOP] % 30) == 3) {
+	    CreateInventoryCharts();
+	} else if ((_cycles[CYCLES_TOP] % 30) == 3) {
+	    CreateCargoCharts();
+	} else if ((_cycles[CYCLES_TOP] % 30) == 4) {
+	    CreateBatteryCharts();
+	} else if ((_cycles[CYCLES_TOP] % 30) == 5) {
+	    CreateGasCharts();
+	} else if ((_cycles[CYCLES_TOP] % 30) == 6) {
+	    CreateProdCharts();
+	} else if ((_cycles[CYCLES_TOP] % 30) == 7) {
 	    FindInventoryBlocks();
-	}
-	if ((_cycles[CYCLES_TOP] % 30) == 4) {
+	} else if ((_cycles[CYCLES_TOP] % 30) == 8) {
 	    FindCargoBlocks();
-	}
-	if ((_cycles[CYCLES_TOP] % 30) == 5) {
+	} else if ((_cycles[CYCLES_TOP] % 30) == 9) {
 	    FindBatteryBlocks();
-	}
-	if ((_cycles[CYCLES_TOP] % 30) == 6) {
+	} else if ((_cycles[CYCLES_TOP] % 30) == 10) {
 	    FindGasBlocks();
-	}
-	if ((_cycles[CYCLES_TOP] % 30) == 7) {
+	} else if ((_cycles[CYCLES_TOP] % 30) == 11) {
 	    FindProdBlocks();
 	}
 
@@ -335,6 +338,7 @@ public void UpdateBatteryStats() {
     sample.MaxInput  = 0.0F;
     sample.CurrentOutput  = 0.0F;
     sample.MaxOutput  = 0.0F;
+    sample.CurrentNetRate = 0.0F;
 
     int num_batteries = 0, num_recharge = 0, num_discharge = 0;
     foreach (IMyBatteryBlock battery_block in _battery_blocks) {
@@ -359,6 +363,7 @@ public void UpdateBatteryStats() {
 	    sample.MaxInput += battery_block.MaxInput;
 	}
     }
+    sample.CurrentNetRate = sample.CurrentInput - sample.CurrentOutput;
     Log($"  {num_batteries} batteries with {num_recharge} recharging and {num_discharge} discharging.");
 }
 
@@ -513,19 +518,38 @@ public void CreateChart(string chart, string unit) {
     _zis.CreateDataset(chart, unit);
 }
 
-public void CreateCharts() {
-    CreateChart(CHART_POWER_STORED, "MWh");
-    CreateChart(CHART_MAX_POWER_STORED, "MWh");
-    CreateChart(CHART_POWER_IN, "MW");
-    CreateChart(CHART_POWER_OUT, "MW");
+public void CreateInventoryCharts() {
+    string item_name;
+    foreach (MyItemType item_type in _known_item_types) {
+	item_name = GetItemName(item_type);
+        CreateChart($"Stock {item_name}", "");
+        CreateChart($"Rate {item_name}", "");
+    }
+}
+
+public void CreateCargoCharts() {
     CreateChart(CHART_CARGO_USED_MASS, "t");
     CreateChart(CHART_CARGO_USED_VOLUME, "m3");
     CreateChart(CHART_CARGO_FREE_VOLUME, "m3");
     // TODO: restricted cargo stats
+}
+
+public void CreateBatteryCharts() {
+    CreateChart(CHART_POWER_STORED, "MWh");
+    CreateChart(CHART_MAX_POWER_STORED, "MWh");
+    CreateChart(CHART_POWER_IN, "MW");
+    CreateChart(CHART_POWER_OUT, "MW");
+    CreateChart(CHART_NET_POWER_RATE, "MW");
+}
+
+public void CreateGasCharts() {
     CreateChart(CHART_O2_USED_VOLUME, "m3");
     CreateChart(CHART_O2_FREE_VOLUME, "m3");
     CreateChart(CHART_H2_USED_VOLUME, "m3");
     CreateChart(CHART_H2_FREE_VOLUME, "m3");
+}
+
+public void CreateProdCharts() {
     CreateChart(CHART_ALL_ASSEM_ACTIVE, "");
     CreateChart(CHART_ALL_ASSEM_TOTAL, "");
     CreateChart(CHART_ASSEM_ACTIVE, "");
@@ -540,16 +564,6 @@ public void CreateCharts() {
     CreateChart(CHART_BASIC_REFINE_TOTAL, "");
     CreateChart(CHART_SURV_KIT_ACTIVE, "");
     CreateChart(CHART_SURV_KIT_TOTAL, "");
-    CreateInventoryCharts();
-}
-
-public void CreateInventoryCharts() {
-    string item_name;
-    foreach (MyItemType item_type in _known_item_types) {
-	item_name = GetItemName(item_type);
-        CreateChart($"Stock {item_name}", "");
-        CreateChart($"Rate {item_name}", "");
-    }
 }
 
 public void FindInventoryBlocks() {
@@ -596,6 +610,7 @@ public void UpdatePowerCharts() {
     UpdateChart(CHART_MAX_POWER_STORED, (double)_battery[now].MaxStoredPower);
     UpdateChart(CHART_POWER_IN, (double)_battery[now].CurrentInput);
     UpdateChart(CHART_POWER_OUT, (double)_battery[now].CurrentOutput);
+    UpdateChart(CHART_NET_POWER_RATE, (double)_battery[now].CurrentNetRate);
 }
 
 public void UpdateCargoCharts() {
@@ -653,7 +668,7 @@ public void UpdateProdCharts() {
 }
 
 class ZIScript {
-    public const string ZIS_VERSION = "3.0.2";
+    public const string ZIS_VERSION = "3.0.3";
 
     public const string SCRIPT_TITLE = Program.SCRIPT_FULL_NAME + " v" + Program.SCRIPT_VERSION + " (ZIS v" + ZIS_VERSION + ")";
     public const string SCRIPT_TITLE_NL = SCRIPT_TITLE + "\n";
@@ -826,7 +841,7 @@ class ZIScript {
 		IssueDatapoint(CHART_EVENTS_TX, (double)tx);
 
 		Log($"[Cycle {_cycles}]\n  Main loops: {_tallies[LAST_RUN_MAIN].Cycles}. Event loops: {_tallies[LAST_RUN_EVENT].Cycles}\n  Events: {rx} received, {tx} transmitted.\n  {_subscriptions.Count()} event listeners.");
-                Log($"  Max event bandwidth: {_max_event.Utilization}% ({_max_event.Rx} of {_max_event.Max} on '{_max_event.Channel}').");
+                Log($"  Max event bandwidth: {_max_event.Utilization}% ({_max_event.Rx} of {_max_event.Max}) on...\n    '{_max_event.Channel}'.");
 		FlushToPanels(_debug_panels);
 
 		_tallies[LAST_RUN_MAIN].Cycles = 0;
